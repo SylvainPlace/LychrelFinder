@@ -247,16 +247,18 @@ impl RecordHunter {
             });
         }
         
-        // Update best found
-        if result.iterations > self.stats.best_iterations_found {
-            self.stats.best_iterations_found = result.iterations;
-        }
-        
-        let final_digits = result.final_number.as_ref()
-            .map(|n| n.to_string().len())
-            .unwrap_or(0);
-        if final_digits > self.stats.best_digits_found {
-            self.stats.best_digits_found = final_digits;
+        // Update best found (ONLY for palindromes, not Lychrels!)
+        if result.is_palindrome {
+            if result.iterations > self.stats.best_iterations_found {
+                self.stats.best_iterations_found = result.iterations;
+            }
+            
+            let final_digits = result.final_number.as_ref()
+                .map(|n| n.to_string().len())
+                .unwrap_or(0);
+            if final_digits > self.stats.best_digits_found {
+                self.stats.best_digits_found = final_digits;
+            }
         }
     }
 
@@ -304,9 +306,36 @@ impl RecordHunter {
     }
 
     pub fn save_checkpoint(&self) {
-        // This will be implemented in record_checkpoint.rs
-        // For now, just print a message
-        println!("  ✓ Checkpoint saved at {} numbers tested", self.stats.numbers_tested);
+        use crate::record_checkpoint::{RecordHuntCheckpoint, CheckpointConfig};
+        
+        let checkpoint = RecordHuntCheckpoint::new(
+            &self.seed_generator.current_position(),
+            self.min_digits,
+            self.seed_generator.mode.clone(),
+            &self.stats,
+            &format!("{}_cache.json", self.checkpoint_file),
+            CheckpointConfig {
+                min_digits: self.min_digits,
+                target_iterations: self.target_iterations,
+                max_iterations: self.max_iterations,
+                target_final_digits: self.target_final_digits,
+                cache_size: self.thread_cache.len(),
+                checkpoint_interval: self.checkpoint_interval,
+            },
+        );
+        
+        // Save checkpoint
+        if let Err(e) = checkpoint.save(std::path::Path::new(&self.checkpoint_file)) {
+            eprintln!("  ✗ Failed to save checkpoint: {}", e);
+        } else {
+            // Save thread cache separately
+            let cache_file = format!("{}_cache.json", self.checkpoint_file);
+            if let Err(e) = self.thread_cache.save_to_file(std::path::Path::new(&cache_file)) {
+                eprintln!("  ✗ Failed to save cache: {}", e);
+            } else {
+                println!("  ✓ Checkpoint saved at {} numbers tested", self.stats.numbers_tested);
+            }
+        }
     }
 
     fn finalize(&self) -> HuntResults {

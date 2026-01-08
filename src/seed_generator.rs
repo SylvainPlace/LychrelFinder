@@ -13,7 +13,7 @@ pub struct SeedGenerator {
     current: BigUint,
     max: BigUint,
     digits: usize,
-    mode: GeneratorMode,
+    pub mode: GeneratorMode,
     skip_count: u64,  // Track how many we've skipped
     generated_count: u64,  // Track how many we've generated
 }
