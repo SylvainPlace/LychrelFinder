@@ -33,6 +33,8 @@ fn test_search_range_finds_multiple_lychrel() {
         end: BigUint::from(200u32),
         max_iterations: 100,
         parallel: false,
+        checkpoint_interval: None,
+        checkpoint_file: None,
     };
 
     let results = search_range(config);
@@ -54,6 +56,8 @@ fn test_parallel_vs_sequential() {
         end: BigUint::from(100u32),
         max_iterations: 100,
         parallel: false,
+        checkpoint_interval: None,
+        checkpoint_file: None,
     };
 
     let config_par = SearchConfig {
@@ -61,6 +65,8 @@ fn test_parallel_vs_sequential() {
         end: BigUint::from(100u32),
         max_iterations: 100,
         parallel: true,
+        checkpoint_interval: None,
+        checkpoint_file: None,
     };
 
     let results_seq = search_range(config_seq);

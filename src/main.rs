@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use lychrel_finder::{lychrel_iteration, search_range, search_range_resumable, verify_lychrel_resumable, resume_from_checkpoint_with_config, SearchConfig, SearchResults, VerifyConfig, Checkpoint, SearchCheckpoint};
+use lychrel_finder::{lychrel_iteration, search_range, search_range_resumable, verify_lychrel_resumable, resume_from_checkpoint_with_config, SearchConfig, SearchResults, VerifyConfig, Checkpoint, SearchCheckpoint, RecordHunter, HuntConfig, GeneratorMode};
 use num_bigint::BigUint;
 use serde_json;
 use std::fs::File;
@@ -79,6 +79,36 @@ enum Commands {
         checkpoint_file: String,
     },
 
+    #[command(about = "Hunt for record-breaking Lychrel numbers with optimized thread detection")]
+    HuntRecord {
+        #[arg(long, help = "Minimum number of digits (default: 23)")]
+        min_digits: Option<usize>,
+
+        #[arg(long, help = "Target minimum iterations (default: 289)")]
+        target_iterations: Option<u32>,
+
+        #[arg(long, help = "Maximum iterations before considering it a Lychrel (default: 300)")]
+        max_iterations: Option<u32>,
+
+        #[arg(long, help = "Target minimum final digits (default: 142)")]
+        target_final_digits: Option<usize>,
+
+        #[arg(long, help = "Cache size in entries (default: 1000000)")]
+        cache_size: Option<usize>,
+
+        #[arg(long, help = "Warmup cache with 1-1M range")]
+        warmup: bool,
+
+        #[arg(long, help = "Generator mode: sequential, random, pattern (default: sequential)")]
+        mode: Option<String>,
+
+        #[arg(short = 'c', long, help = "Checkpoint every N numbers (default: 100000)")]
+        checkpoint_interval: Option<u64>,
+
+        #[arg(short = 'f', long, help = "Checkpoint file")]
+        checkpoint_file: Option<String>,
+    },
+
     #[command(about = "Run benchmark tests")]
     Benchmark,
 }
@@ -117,6 +147,29 @@ fn main() {
         }
         Commands::Resume { checkpoint_file } => {
             resume_verification(&checkpoint_file);
+        }
+        Commands::HuntRecord {
+            min_digits,
+            target_iterations,
+            max_iterations,
+            target_final_digits,
+            cache_size,
+            warmup,
+            mode,
+            checkpoint_interval,
+            checkpoint_file,
+        } => {
+            hunt_records(
+                min_digits.unwrap_or(23),
+                target_iterations.unwrap_or(289),
+                max_iterations.unwrap_or(300),
+                target_final_digits.unwrap_or(142),
+                cache_size.unwrap_or(1_000_000),
+                warmup,
+                mode.as_deref().unwrap_or("sequential"),
+                checkpoint_interval.unwrap_or(100_000),
+                checkpoint_file.unwrap_or_else(|| "hunt_checkpoint.json".to_string()),
+            );
         }
         Commands::Benchmark => {
             run_benchmark();
@@ -721,4 +774,99 @@ fn run_benchmark() {
     println!("  Tested: {}", results.total_tested);
     println!("  Potential Lychrel found: {}", results.potential_lychrel.len());
     println!("  Time: {:.3}s", elapsed.as_secs_f64());
+}
+
+fn parse_mode(mode_str: &str) -> GeneratorMode {
+    match mode_str.to_lowercase().as_str() {
+        "sequential" => GeneratorMode::Sequential,
+        "random" => GeneratorMode::SmartRandom,
+        "pattern" => GeneratorMode::PatternBased,
+        _ => {
+            eprintln!("Warning: Unknown mode '{}', using sequential", mode_str);
+            GeneratorMode::Sequential
+        }
+    }
+}
+
+fn hunt_records(
+    min_digits: usize,
+    target_iterations: u32,
+    max_iterations: u32,
+    target_final_digits: usize,
+    cache_size: usize,
+    warmup: bool,
+    mode: &str,
+    checkpoint_interval: u64,
+    checkpoint_file: String,
+) {
+    println!("🔍 ═══════════════════════════════════════════");
+    println!("   LYCHREL RECORD HUNT");
+    println!("═══════════════════════════════════════════");
+    println!("Configuration:");
+    println!("  Min digits:          {}", min_digits);
+    println!("  Target iterations:   {} - {}", target_iterations, max_iterations);
+    println!("  Target final digits: {}", target_final_digits);
+    println!("  Cache size:          {}", cache_size);
+    println!("  Generator mode:      {}", mode);
+    println!("  Checkpoint interval: {} numbers", checkpoint_interval);
+    println!("  Checkpoint file:     {}", checkpoint_file);
+    println!("═══════════════════════════════════════════\n");
+    
+    // Create config
+    let config = HuntConfig {
+        min_digits,
+        target_iterations,
+        max_iterations,
+        target_final_digits,
+        cache_size,
+        generator_mode: parse_mode(mode),
+        checkpoint_interval,
+        checkpoint_file: checkpoint_file.clone(),
+    };
+    
+    // Create hunter
+    let mut hunter = RecordHunter::new(config);
+    
+    // Warmup if requested
+    if warmup {
+        hunter.warmup_cache();
+    }
+    
+    // Start hunting
+    let results = hunter.hunt();
+    
+    // Summary
+    println!("\n📊 FINAL SUMMARY");
+    println!("═══════════════════════════════════════════");
+    println!("Numbers tested:      {}", results.numbers_tested);
+    println!("Seeds tested:        {}", results.seeds_tested);
+    println!("Records found:       {}", results.records.len());
+    println!("Candidates (200+):   {}", results.candidates_above_200.len());
+    println!("Best iterations:     {}", results.best_iterations_found);
+    println!("Time elapsed:        {:.2}s", results.elapsed_time.as_secs_f64());
+    
+    if results.elapsed_time.as_secs() > 0 {
+        let rate = results.numbers_tested as f64 / results.elapsed_time.as_secs() as f64;
+        println!("Average rate:        {:.0} numbers/second", rate);
+    }
+    
+    println!("═══════════════════════════════════════════\n");
+    
+    if !results.records.is_empty() {
+        println!("🎉 {} RECORD(S) FOUND!", results.records.len());
+        for record in &results.records {
+            println!("  - Number: {} ({} iterations, {} final digits)",
+                     record.number, record.iterations, record.final_digits);
+        }
+        println!();
+    }
+    
+    if !results.candidates_above_200.is_empty() && results.candidates_above_200.len() <= 20 {
+        println!("📋 Promising candidates (200+ iterations):");
+        for candidate in &results.candidates_above_200 {
+            println!("  - {} ({} iter, {} digits)",
+                     candidate.number, candidate.iterations, candidate.final_digits);
+        }
+        println!();
+    }
 }
