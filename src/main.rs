@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use lychrel_finder::{lychrel_iteration, search_range, verify_lychrel_resumable, resume_from_checkpoint_with_config, SearchConfig, SearchResults, VerifyConfig, Checkpoint};
+use lychrel_finder::{lychrel_iteration, search_range, search_range_resumable, verify_lychrel_resumable, resume_from_checkpoint_with_config, SearchConfig, SearchResults, VerifyConfig, Checkpoint, SearchCheckpoint};
 use num_bigint::BigUint;
 use serde_json;
 use std::fs::File;
@@ -41,6 +41,15 @@ enum Commands {
 
         #[arg(long, help = "Disable parallel processing")]
         no_parallel: bool,
+
+        #[arg(short = 'c', long, help = "Save checkpoint every N numbers tested (default: 1000, use 0 to disable)")]
+        checkpoint_interval: Option<u64>,
+
+        #[arg(short = 'f', long, help = "Checkpoint file path (default: search_checkpoint_<start>_<end>.json)")]
+        checkpoint_file: Option<String>,
+
+        #[arg(long, help = "Force restart from beginning, ignoring existing checkpoint")]
+        force_restart: bool,
     },
 
     #[command(about = "Verify if a number is truly a Lychrel number with extensive testing")]
@@ -90,8 +99,11 @@ fn main() {
             max_iterations,
             output,
             no_parallel,
+            checkpoint_interval,
+            checkpoint_file,
+            force_restart,
         } => {
-            search_numbers(start, end, max_iterations, output, !no_parallel);
+            search_numbers(start, end, max_iterations, output, !no_parallel, checkpoint_interval, checkpoint_file, force_restart);
         }
         Commands::Verify {
             number,
@@ -425,27 +437,202 @@ fn search_numbers(
     max_iterations: u32,
     output_file: Option<String>,
     parallel: bool,
+    checkpoint_interval: Option<u64>,
+    checkpoint_file: Option<String>,
+    force_restart: bool,
 ) {
+    let checkpoint_file = checkpoint_file.unwrap_or_else(|| {
+        format!("search_checkpoint_{}_{}.json", start, end)
+    });
+
+    // Default checkpoint interval is 1000 if not specified
+    let checkpoint_interval = match checkpoint_interval {
+        Some(0) => None,
+        Some(n) => Some(n),
+        None => Some(1000),
+    };
+
+    // Check if checkpoint exists and offer to resume
+    if !force_restart && !parallel {
+        if let Ok(existing_checkpoint) = SearchCheckpoint::load(&checkpoint_file) {
+            println!("========================================");
+            println!("  SEARCH CHECKPOINT FOUND!");
+            println!("========================================");
+            println!("Search range: {} to {}", existing_checkpoint.start_range, existing_checkpoint.end_range);
+            println!("  Progress: {:.2}%", existing_checkpoint.progress_percentage());
+            println!("  Numbers tested: {}", existing_checkpoint.numbers_tested);
+            println!("  Numbers remaining: {}", existing_checkpoint.numbers_remaining());
+            println!("  Potential Lychrel found so far: {}", existing_checkpoint.potential_lychrel_found.len());
+            println!("  Elapsed time: {:.3}s", existing_checkpoint.elapsed_secs);
+            println!("  Saved at: {}", existing_checkpoint.timestamp);
+            
+            let checkpoint_interval_val = existing_checkpoint.checkpoint_interval.unwrap_or(0);
+            if checkpoint_interval_val > 0 {
+                println!("  Checkpoint interval: every {} numbers", checkpoint_interval_val);
+            }
+            println!("========================================");
+            println!("\nDo you want to resume from this checkpoint?");
+            println!("  [Y] Resume from checkpoint (default)");
+            println!("  [N] Start fresh (delete checkpoint)");
+            print!("\nYour choice (Y/n): ");
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+            let input = input.trim().to_lowercase();
+
+            if input.is_empty() || input == "y" || input == "yes" {
+                println!("\nResuming search from checkpoint...\n");
+                resume_search(&checkpoint_file, output_file);
+                return;
+            } else {
+                println!("\nDeleting old checkpoint and starting fresh...\n");
+                if let Err(e) = std::fs::remove_file(&checkpoint_file) {
+                    eprintln!("Warning: Could not delete checkpoint file: {}", e);
+                }
+            }
+        }
+    } else if !parallel && std::path::Path::new(&checkpoint_file).exists() {
+        if force_restart {
+            println!("Deleting existing checkpoint (--force-restart)...\n");
+            if let Err(e) = std::fs::remove_file(&checkpoint_file) {
+                eprintln!("Warning: Could not delete checkpoint file: {}", e);
+            }
+        }
+    }
+
+    if parallel && checkpoint_interval.is_some() {
+        println!("Warning: Checkpoints are not supported with parallel processing. Disabling checkpoints.\n");
+    }
+
     println!("Searching range: {} to {}", start, end);
     println!("Max iterations: {}", max_iterations);
     println!("Parallel processing: {}", if parallel { "enabled" } else { "disabled" });
+    if !parallel {
+        if let Some(interval) = checkpoint_interval {
+            println!("Checkpoint interval: every {} numbers", interval);
+            println!("Checkpoint file: {}", checkpoint_file);
+        } else {
+            println!("Checkpoint saving: disabled");
+        }
+    }
     println!();
 
-    let config = SearchConfig {
-        start: BigUint::from(start),
-        end: BigUint::from(end),
-        max_iterations,
-        parallel,
-    };
-
     let start_time = Instant::now();
-    let results = search_range(config);
+    let results = if parallel {
+        let config = SearchConfig {
+            start: BigUint::from(start),
+            end: BigUint::from(end),
+            max_iterations,
+            parallel: true,
+            checkpoint_interval: None,
+            checkpoint_file: None,
+        };
+        search_range(config)
+    } else {
+        let config = SearchConfig {
+            start: BigUint::from(start),
+            end: BigUint::from(end),
+            max_iterations,
+            parallel: false,
+            checkpoint_interval,
+            checkpoint_file: Some(checkpoint_file.clone()),
+        };
+        
+        let total_numbers = end - start + 1;
+        let mut last_display = 0u64;
+        let display_interval = 100;
+        
+        search_range_resumable(config, |tested, current, is_checkpoint| {
+            if is_checkpoint || tested - last_display >= display_interval {
+                let progress = (tested as f64 / total_numbers as f64) * 100.0;
+                if is_checkpoint {
+                    println!(
+                        "[Search] Tested: {}/{} ({:.1}%) | Current: {} | ✓ Checkpoint saved",
+                        tested, total_numbers, progress, current
+                    );
+                } else {
+                    println!(
+                        "[Search] Tested: {}/{} ({:.1}%) | Current: {}",
+                        tested, total_numbers, progress, current
+                    );
+                }
+                last_display = tested;
+            }
+        })
+    };
+    
     let elapsed = start_time.elapsed();
 
     print_search_results(&results, elapsed);
 
     if let Some(filename) = output_file {
         save_results_to_file(&results, &filename);
+    }
+
+    // Clean up checkpoint file on successful completion
+    if !parallel && std::path::Path::new(&checkpoint_file).exists() {
+        if let Err(e) = std::fs::remove_file(&checkpoint_file) {
+            eprintln!("Warning: Could not delete checkpoint file: {}", e);
+        }
+    }
+}
+
+fn resume_search(checkpoint_file: &str, output_file: Option<String>) {
+    use lychrel_finder::resume_search_from_checkpoint;
+    
+    let checkpoint = match SearchCheckpoint::load(checkpoint_file) {
+        Ok(cp) => cp,
+        Err(e) => {
+            eprintln!("Error: Failed to load checkpoint: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let total_numbers = if let (Ok(start), Ok(end)) = (
+        checkpoint.start_range.to_string().parse::<u64>(),
+        checkpoint.end_range.to_string().parse::<u64>()
+    ) {
+        end - start + 1
+    } else {
+        0
+    };
+
+    let mut last_display = checkpoint.numbers_tested;
+    let display_interval = 100;
+    
+    let start_time = Instant::now();
+    let results = resume_search_from_checkpoint(checkpoint, |tested, current, is_checkpoint| {
+        if is_checkpoint || tested - last_display >= display_interval {
+            let progress = (tested as f64 / total_numbers as f64) * 100.0;
+            if is_checkpoint {
+                println!(
+                    "[Search] Tested: {}/{} ({:.1}%) | Current: {} | ✓ Checkpoint saved",
+                    tested, total_numbers, progress, current
+                );
+            } else {
+                println!(
+                    "[Search] Tested: {}/{} ({:.1}%) | Current: {}",
+                    tested, total_numbers, progress, current
+                );
+            }
+            last_display = tested;
+        }
+    });
+    
+    let elapsed = start_time.elapsed();
+
+    print_search_results(&results, elapsed);
+
+    if let Some(filename) = output_file {
+        save_results_to_file(&results, &filename);
+    }
+
+    // Clean up checkpoint file on successful completion
+    if std::path::Path::new(checkpoint_file).exists() {
+        if let Err(e) = std::fs::remove_file(checkpoint_file) {
+            eprintln!("Warning: Could not delete checkpoint file: {}", e);
+        }
     }
 }
 
@@ -509,6 +696,8 @@ fn run_benchmark() {
         end: BigUint::from(10000u64),
         max_iterations: 1000,
         parallel: true,
+        checkpoint_interval: None,
+        checkpoint_file: None,
     };
     let start_time = Instant::now();
     let results = search_range(config);
@@ -523,6 +712,8 @@ fn run_benchmark() {
         end: BigUint::from(100000u64),
         max_iterations: 1000,
         parallel: true,
+        checkpoint_interval: None,
+        checkpoint_file: None,
     };
     let start_time = Instant::now();
     let results = search_range(config_intensive);

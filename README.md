@@ -15,11 +15,11 @@ The number 196 is the smallest known Lychrel candidate - after millions of itera
 ## Features
 
 - ✅ Test individual numbers for Lychrel property
-- ✅ Search ranges of numbers
+- ✅ Search ranges of numbers with optional parallel processing
 - ✅ Deep verification mode with millions of iterations and live progress tracking
-- ✅ Automatic checkpoint/resume system for long-running verifications (enabled by default)
+- ✅ Automatic checkpoint/resume system for long-running operations (verify and sequential search)
 - ✅ Support for arbitrarily large numbers (BigInt arithmetic)
-- ✅ Parallelized processing for optimal performance
+- ✅ Parallelized processing for optimal performance (search command)
 - ✅ Export results to JSON
 - ✅ Built-in performance benchmarks
 
@@ -60,15 +60,44 @@ Time elapsed: 0.042s
 
 ### Search a Range
 
+**Note:** Checkpoints are saved automatically every 1000 numbers by default when using sequential search (--no-parallel).
+Parallel search doesn't support checkpoints.
+
 ```bash
-# Search from 1 to 10000
-cargo run --release -- search 1 10000 --max-iterations 1000
+# Search from 1 to 10000 (parallel by default, no checkpoints)
+cargo run --release -- search 1 10000
+
+# Sequential search with automatic checkpoints
+cargo run --release -- search 1 100000 --no-parallel
+
+# Custom checkpoint interval
+cargo run --release -- search 1 100000 --no-parallel -c 5000
 
 # With JSON export
 cargo run --release -- search 1 10000 --output results.json
 
-# Without parallelization
-cargo run --release -- search 1 1000 --no-parallel
+# Disable checkpoints
+cargo run --release -- search 1 10000 --no-parallel -c 0
+```
+
+Example output with checkpoints:
+```
+Searching range: 1 to 100000
+Max iterations: 10000
+Parallel processing: disabled
+Checkpoint interval: every 1000 numbers
+Checkpoint file: search_checkpoint_1_100000.json
+
+[Search] Tested: 1000/100000 (1.0%) | Current: 1000
+[Search] Tested: 2000/100000 (2.0%) | Current: 2000 | ✓ Checkpoint saved
+[Search] Tested: 3000/100000 (3.0%) | Current: 3000 | ✓ Checkpoint saved
+...
+
+Search complete!
+  Total tested: 100000
+  Potential Lychrel numbers found: 251
+  Numbers reaching palindromes: 99749
+  Time elapsed: 45.678s
 ```
 
 ### Verify a Lychrel Candidate (Deep Testing)
@@ -172,7 +201,10 @@ cargo run --release -- benchmark
 - `end`: End of range (required)
 - `--max-iterations` or `-m`: Maximum number of iterations (default: 10000)
 - `--output` or `-o`: JSON output file for results
-- `--no-parallel`: Disable parallel processing
+- `--no-parallel`: Disable parallel processing (enables checkpoints)
+- `--checkpoint-interval` or `-c`: Save checkpoint every N numbers (default: 1000, use 0 to disable, only works with --no-parallel)
+- `--checkpoint-file` or `-f`: Checkpoint file path (default: search_checkpoint_<start>_<end>.json)
+- `--force-restart`: Ignore existing checkpoint and start fresh
 
 ### `verify` Command
 - `number`: The number to verify (required)

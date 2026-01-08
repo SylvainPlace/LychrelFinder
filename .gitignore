@@ -22,6 +22,7 @@
 
 # Checkpoint files
 checkpoint_*.json
+search_checkpoint_*.json
 
 # Windows specific
 Thumbs.db

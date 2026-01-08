@@ -1,13 +1,17 @@
 use crate::lychrel::{lychrel_iteration, IterationResult};
+use crate::search_checkpoint::SearchCheckpoint;
 use num_bigint::BigUint;
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 pub struct SearchConfig {
     pub start: BigUint,
     pub end: BigUint,
     pub max_iterations: u32,
     pub parallel: bool,
+    pub checkpoint_interval: Option<u64>,
+    pub checkpoint_file: Option<String>,
 }
 
 pub struct SearchResults {
@@ -32,6 +36,137 @@ pub fn search_range(config: SearchConfig) -> SearchResults {
     } else {
         search_sequential(config)
     }
+}
+
+pub fn search_range_resumable<F>(config: SearchConfig, mut progress_callback: F) -> SearchResults
+where
+    F: FnMut(u64, &BigUint, bool),
+{
+    let start_time = Instant::now();
+    let mut results = SearchResults::new();
+    let mut current = config.start.clone();
+    let mut last_checkpoint = 0u64;
+
+    while current <= config.end {
+        let result = lychrel_iteration(current.clone(), config.max_iterations);
+        results.total_tested += 1;
+
+        if result.is_potential_lychrel {
+            results.potential_lychrel.push(result);
+        } else if result.iterations > 0 {
+            results.palindromes_found.push(result);
+        }
+
+        // Save checkpoint periodically
+        let should_save_checkpoint = if let Some(interval) = config.checkpoint_interval {
+            results.total_tested - last_checkpoint >= interval
+        } else {
+            false
+        };
+
+        if should_save_checkpoint {
+            if let Some(ref file) = config.checkpoint_file {
+                let checkpoint = SearchCheckpoint::new(
+                    config.start.clone(),
+                    config.end.clone(),
+                    current.clone(),
+                    config.max_iterations,
+                    results.total_tested,
+                    &results.potential_lychrel,
+                    config.checkpoint_interval,
+                    config.checkpoint_file.clone(),
+                    start_time.elapsed().as_secs_f64(),
+                );
+                
+                if let Err(e) = checkpoint.save(file) {
+                    eprintln!("Warning: Failed to save checkpoint: {}", e);
+                } else {
+                    progress_callback(results.total_tested, &current, true);
+                    last_checkpoint = results.total_tested;
+                }
+            }
+        } else {
+            progress_callback(results.total_tested, &current, false);
+        }
+
+        current += 1u32;
+    }
+
+    results
+}
+
+pub fn resume_search_from_checkpoint<F>(
+    checkpoint: SearchCheckpoint,
+    mut progress_callback: F,
+) -> SearchResults
+where
+    F: FnMut(u64, &BigUint, bool),
+{
+    let start_time = Instant::now();
+    let mut results = SearchResults::new();
+    results.total_tested = checkpoint.numbers_tested;
+    
+    // Recreate potential_lychrel from saved numbers
+    for num in &checkpoint.potential_lychrel_found {
+        let result = IterationResult {
+            start_number: num.clone(),
+            is_palindrome: false,
+            iterations: checkpoint.max_iterations,
+            final_number: None,
+            is_potential_lychrel: true,
+        };
+        results.potential_lychrel.push(result);
+    }
+
+    let mut current = checkpoint.current_number.clone() + 1u32;
+    let mut last_checkpoint = checkpoint.numbers_tested;
+
+    while current <= checkpoint.end_range {
+        let result = lychrel_iteration(current.clone(), checkpoint.max_iterations);
+        results.total_tested += 1;
+
+        if result.is_potential_lychrel {
+            results.potential_lychrel.push(result);
+        } else if result.iterations > 0 {
+            results.palindromes_found.push(result);
+        }
+
+        // Save checkpoint periodically
+        let should_save_checkpoint = if let Some(interval) = checkpoint.checkpoint_interval {
+            results.total_tested - last_checkpoint >= interval
+        } else {
+            false
+        };
+
+        if should_save_checkpoint {
+            if let Some(ref file) = checkpoint.checkpoint_file {
+                let new_checkpoint = SearchCheckpoint::new(
+                    checkpoint.start_range.clone(),
+                    checkpoint.end_range.clone(),
+                    current.clone(),
+                    checkpoint.max_iterations,
+                    results.total_tested,
+                    &results.potential_lychrel,
+                    checkpoint.checkpoint_interval,
+                    checkpoint.checkpoint_file.clone(),
+                    checkpoint.elapsed_secs + start_time.elapsed().as_secs_f64(),
+                );
+                
+                if let Err(e) = new_checkpoint.save(file) {
+                    eprintln!("Warning: Failed to save checkpoint: {}", e);
+                } else {
+                    progress_callback(results.total_tested, &current, true);
+                    last_checkpoint = results.total_tested;
+                }
+            }
+        } else {
+            progress_callback(results.total_tested, &current, false);
+        }
+
+        current += 1u32;
+    }
+
+    results
 }
 
 fn search_sequential(config: SearchConfig) -> SearchResults {
@@ -101,6 +236,8 @@ mod tests {
             end: BigUint::from(10u32),
             max_iterations: 100,
             parallel: false,
+            checkpoint_interval: None,
+            checkpoint_file: None,
         };
 
         let results = search_range(config);
@@ -114,6 +251,8 @@ mod tests {
             end: BigUint::from(196u32),
             max_iterations: 50,
             parallel: false,
+            checkpoint_interval: None,
+            checkpoint_file: None,
         };
 
         let results = search_range(config);
