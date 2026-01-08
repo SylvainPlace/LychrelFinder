@@ -81,32 +81,41 @@ enum Commands {
 
     #[command(about = "Hunt for record-breaking Lychrel numbers with optimized thread detection")]
     HuntRecord {
-        #[arg(long, help = "Minimum number of digits (default: 23)")]
+        #[arg(long, help = "Configuration file (JSON) - if provided, CLI options override config file values")]
+        config: Option<String>,
+
+        #[arg(long, help = "Minimum number of digits (overrides config file)")]
         min_digits: Option<usize>,
 
-        #[arg(long, help = "Target minimum iterations (default: 289)")]
+        #[arg(long, help = "Target minimum iterations (overrides config file)")]
         target_iterations: Option<u32>,
 
-        #[arg(long, help = "Maximum iterations before considering it a Lychrel (default: 300)")]
+        #[arg(long, help = "Maximum iterations before considering it a Lychrel (overrides config file)")]
         max_iterations: Option<u32>,
 
-        #[arg(long, help = "Target minimum final digits (default: 142)")]
+        #[arg(long, help = "Target minimum final digits (overrides config file)")]
         target_final_digits: Option<usize>,
 
-        #[arg(long, help = "Cache size in entries (default: 1000000)")]
+        #[arg(long, help = "Cache size in entries (overrides config file)")]
         cache_size: Option<usize>,
 
-        #[arg(long, help = "Warmup cache with 1-1M range")]
-        warmup: bool,
+        #[arg(long, help = "Warmup cache with 1-1M range (overrides config file)")]
+        warmup: Option<bool>,
 
-        #[arg(long, help = "Generator mode: sequential, random, pattern (default: sequential)")]
+        #[arg(long, help = "Generator mode: sequential, random, pattern (overrides config file)")]
         mode: Option<String>,
 
-        #[arg(short = 'c', long, help = "Checkpoint every N numbers (default: 100000)")]
+        #[arg(short = 'c', long, help = "Checkpoint every N numbers (overrides config file)")]
         checkpoint_interval: Option<u64>,
 
-        #[arg(short = 'f', long, help = "Checkpoint file")]
+        #[arg(short = 'f', long, help = "Checkpoint file (overrides config file)")]
         checkpoint_file: Option<String>,
+    },
+
+    #[command(about = "Generate a default hunt configuration file")]
+    InitConfig {
+        #[arg(help = "Output file path (default: hunt_config.json)")]
+        output: Option<String>,
     },
 
     #[command(about = "Run benchmark tests")]
@@ -149,6 +158,7 @@ fn main() {
             resume_verification(&checkpoint_file);
         }
         Commands::HuntRecord {
+            config,
             min_digits,
             target_iterations,
             max_iterations,
@@ -159,17 +169,21 @@ fn main() {
             checkpoint_interval,
             checkpoint_file,
         } => {
-            hunt_records(
-                min_digits.unwrap_or(23),
-                target_iterations.unwrap_or(289),
-                max_iterations.unwrap_or(300),
-                target_final_digits.unwrap_or(142),
-                cache_size.unwrap_or(1_000_000),
+            hunt_records_from_config(
+                config,
+                min_digits,
+                target_iterations,
+                max_iterations,
+                target_final_digits,
+                cache_size,
                 warmup,
-                mode.as_deref().unwrap_or("sequential"),
-                checkpoint_interval.unwrap_or(100_000),
-                checkpoint_file.unwrap_or_else(|| "hunt_checkpoint.json".to_string()),
+                mode,
+                checkpoint_interval,
+                checkpoint_file,
             );
+        }
+        Commands::InitConfig { output } => {
+            init_config_file(output.as_deref().unwrap_or("hunt_config.json"));
         }
         Commands::Benchmark => {
             run_benchmark();
@@ -788,41 +802,108 @@ fn parse_mode(mode_str: &str) -> GeneratorMode {
     }
 }
 
-fn hunt_records(
-    min_digits: usize,
-    target_iterations: u32,
-    max_iterations: u32,
-    target_final_digits: usize,
-    cache_size: usize,
-    warmup: bool,
-    mode: &str,
-    checkpoint_interval: u64,
-    checkpoint_file: String,
+fn init_config_file(output: &str) {
+    let config = HuntConfig::default();
+    
+    match config.save_to_file(std::path::Path::new(output)) {
+        Ok(_) => {
+            println!("✓ Default configuration file created: {}", output);
+            println!("\nConfiguration:");
+            println!("  Min digits:          {}", config.min_digits);
+            println!("  Target iterations:   {} - {}", config.target_iterations, config.max_iterations);
+            println!("  Target final digits: {}", config.target_final_digits);
+            println!("  Cache size:          {}", config.cache_size);
+            println!("  Generator mode:      {:?}", config.generator_mode);
+            println!("  Checkpoint interval: {}", config.checkpoint_interval);
+            println!("  Checkpoint file:     {}", config.checkpoint_file);
+            println!("  Warmup:              {}", config.warmup);
+            println!("\nYou can now edit this file and use:");
+            println!("  cargo run --release -- hunt-record --config {}", output);
+        }
+        Err(e) => {
+            eprintln!("Error creating config file: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn hunt_records_from_config(
+    config_file: Option<String>,
+    min_digits_override: Option<usize>,
+    target_iterations_override: Option<u32>,
+    max_iterations_override: Option<u32>,
+    target_final_digits_override: Option<usize>,
+    cache_size_override: Option<usize>,
+    warmup_override: Option<bool>,
+    mode_override: Option<String>,
+    checkpoint_interval_override: Option<u64>,
+    checkpoint_file_override: Option<String>,
 ) {
+    // Load config from file or use defaults
+    let mut config = if let Some(config_path) = config_file {
+        match HuntConfig::load_from_file(std::path::Path::new(&config_path)) {
+            Ok(c) => {
+                println!("✓ Loaded configuration from: {}\n", config_path);
+                c
+            }
+            Err(e) => {
+                eprintln!("Error loading config file '{}': {}", config_path, e);
+                eprintln!("Using default configuration instead.\n");
+                HuntConfig::default()
+            }
+        }
+    } else {
+        HuntConfig::default()
+    };
+
+    // Apply CLI overrides
+    if let Some(v) = min_digits_override {
+        config.min_digits = v;
+    }
+    if let Some(v) = target_iterations_override {
+        config.target_iterations = v;
+    }
+    if let Some(v) = max_iterations_override {
+        config.max_iterations = v;
+    }
+    if let Some(v) = target_final_digits_override {
+        config.target_final_digits = v;
+    }
+    if let Some(v) = cache_size_override {
+        config.cache_size = v;
+    }
+    if let Some(v) = warmup_override {
+        config.warmup = v;
+    }
+    if let Some(v) = mode_override {
+        config.generator_mode = parse_mode(&v);
+    }
+    if let Some(v) = checkpoint_interval_override {
+        config.checkpoint_interval = v;
+    }
+    if let Some(v) = checkpoint_file_override {
+        config.checkpoint_file = v;
+    }
+
+    hunt_records_with_config(config);
+}
+
+fn hunt_records_with_config(config: HuntConfig) {
     println!("🔍 ═══════════════════════════════════════════");
     println!("   LYCHREL RECORD HUNT");
     println!("═══════════════════════════════════════════");
     println!("Configuration:");
-    println!("  Min digits:          {}", min_digits);
-    println!("  Target iterations:   {} - {}", target_iterations, max_iterations);
-    println!("  Target final digits: {}", target_final_digits);
-    println!("  Cache size:          {}", cache_size);
-    println!("  Generator mode:      {}", mode);
-    println!("  Checkpoint interval: {} numbers", checkpoint_interval);
-    println!("  Checkpoint file:     {}", checkpoint_file);
+    println!("  Min digits:          {}", config.min_digits);
+    println!("  Target iterations:   {} - {}", config.target_iterations, config.max_iterations);
+    println!("  Target final digits: {}", config.target_final_digits);
+    println!("  Cache size:          {}", config.cache_size);
+    println!("  Generator mode:      {:?}", config.generator_mode);
+    println!("  Checkpoint interval: {} numbers", config.checkpoint_interval);
+    println!("  Checkpoint file:     {}", config.checkpoint_file);
+    println!("  Warmup:              {}", config.warmup);
     println!("═══════════════════════════════════════════\n");
     
-    // Create config
-    let config = HuntConfig {
-        min_digits,
-        target_iterations,
-        max_iterations,
-        target_final_digits,
-        cache_size,
-        generator_mode: parse_mode(mode),
-        checkpoint_interval,
-        checkpoint_file: checkpoint_file.clone(),
-    };
+    let warmup = config.warmup;
     
     // Create hunter
     let mut hunter = RecordHunter::new(config);

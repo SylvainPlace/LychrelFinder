@@ -23,6 +23,10 @@
 # Checkpoint files
 checkpoint_*.json
 search_checkpoint_*.json
+hunt_checkpoint.json
+
+# Record files
+record_*.json
 
 # Windows specific
 Thumbs.db

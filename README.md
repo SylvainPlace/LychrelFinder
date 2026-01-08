@@ -107,19 +107,50 @@ Search complete!
 
 **Important:** A "record" is a number that **reaches a palindrome** within the iteration window. Numbers exceeding the maximum iterations without reaching a palindrome are considered true Lychrel candidates, not records.
 
+#### Using Configuration File (Recommended)
+
+```bash
+# Generate a default configuration file
+cargo run --release -- init-config
+
+# Edit hunt_config.json to your liking, then run:
+cargo run --release -- hunt-record --config hunt_config.json
+
+# Override specific settings from CLI
+cargo run --release -- hunt-record --config hunt_config.json --warmup true --min-digits 25
+```
+
+Example `hunt_config.json`:
+```json
+{
+  "min_digits": 23,
+  "target_iterations": 289,
+  "max_iterations": 300,
+  "target_final_digits": 142,
+  "cache_size": 1000000,
+  "generator_mode": "Sequential",
+  "checkpoint_interval": 100000,
+  "checkpoint_file": "hunt_checkpoint.json",
+  "warmup": false
+}
+```
+
+#### Using CLI Arguments Only
+
 ```bash
 # Basic hunt for 23+ digit numbers
 cargo run --release -- hunt-record --min-digits 23
 
 # With cache warmup (recommended for better performance)
-cargo run --release -- hunt-record --min-digits 23 --warmup
+cargo run --release -- hunt-record --min-digits 23 --warmup true
 
 # Custom targets (search for 300+ iterations, 150+ final digits)
 cargo run --release -- hunt-record \
     --min-digits 25 \
     --target-iterations 300 \
+    --max-iterations 310 \
     --target-final-digits 150 \
-    --warmup
+    --warmup true
 
 # Different generation modes
 cargo run --release -- hunt-record --mode sequential --min-digits 20
@@ -300,17 +331,22 @@ cargo run --release -- benchmark
 - `checkpoint_file`: Path to the checkpoint file to resume from (required)
 
 ### `hunt-record` Command
+- `--config <FILE>`: Load configuration from JSON file (recommended). CLI options override file values
 - `--min-digits`: Minimum number of digits to test (default: 23)
 - `--target-iterations`: Minimum iterations to be considered a record (default: 289)
 - `--max-iterations`: Maximum iterations before considering it a true Lychrel (default: 300)
 - `--target-final-digits`: Minimum final digits for a record (default: 142)
 - `--cache-size`: Thread cache size in entries (default: 1000000)
-- `--warmup`: Warmup cache with 1-1M range before hunting (recommended)
+- `--warmup`: Warmup cache with 1-1M range before hunting (default: false)
 - `--mode`: Generator mode - `sequential`, `random`, or `pattern` (default: sequential)
 - `-c` or `--checkpoint-interval`: Save checkpoint every N numbers (default: 100000)
 - `-f` or `--checkpoint-file`: Checkpoint file path (default: hunt_checkpoint.json)
 
 **Note:** A record must reach a palindrome **within** the iteration window [target_iterations, max_iterations]. Numbers that don't reach a palindrome by max_iterations are considered potential true Lychrels, not records.
+
+### `init-config` Command
+Generate a default hunt configuration file.
+- First argument: Output file path (default: hunt_config.json)
 
 ### `benchmark` Command
 Runs a series of predefined performance tests.

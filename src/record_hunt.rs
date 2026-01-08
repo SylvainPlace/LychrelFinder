@@ -1,23 +1,31 @@
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufReader, Write};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::lychrel::{lychrel_iteration, lychrel_iteration_with_cache};
 use crate::thread_cache::ThreadCache;
 use crate::seed_generator::{GeneratorMode, SeedGenerator};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HuntConfig {
     pub min_digits: usize,
     pub target_iterations: u32,
     pub max_iterations: u32,  // Max iterations before considering it a Lychrel
     pub target_final_digits: usize,
     pub cache_size: usize,
+    #[serde(default = "default_generator_mode")]
     pub generator_mode: GeneratorMode,
     pub checkpoint_interval: u64,
     pub checkpoint_file: String,
+    #[serde(default)]
+    pub warmup: bool,
+}
+
+fn default_generator_mode() -> GeneratorMode {
+    GeneratorMode::Sequential
 }
 
 pub struct RecordHunter {
@@ -61,6 +69,38 @@ pub struct HuntResults {
     pub candidates_above_200: Vec<RecordCandidate>,
     pub best_iterations_found: u32,
     pub elapsed_time: Duration,
+}
+
+impl HuntConfig {
+    /// Load configuration from a JSON file
+    pub fn load_from_file(path: &Path) -> std::io::Result<Self> {
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let config = serde_json::from_reader(reader)?;
+        Ok(config)
+    }
+
+    /// Save configuration to a JSON file
+    pub fn save_to_file(&self, path: &Path) -> std::io::Result<()> {
+        let file = File::create(path)?;
+        serde_json::to_writer_pretty(file, self)?;
+        Ok(())
+    }
+
+    /// Create a default configuration
+    pub fn default() -> Self {
+        HuntConfig {
+            min_digits: 23,
+            target_iterations: 289,
+            max_iterations: 300,
+            target_final_digits: 142,
+            cache_size: 1_000_000,
+            generator_mode: GeneratorMode::Sequential,
+            checkpoint_interval: 100_000,
+            checkpoint_file: "hunt_checkpoint.json".to_string(),
+            warmup: false,
+        }
+    }
 }
 
 impl RecordHunter {
