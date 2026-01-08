@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use lychrel_finder::{lychrel_iteration, search_range, SearchConfig, SearchResults};
+use lychrel_finder::{lychrel_iteration, search_range, verify_lychrel, SearchConfig, SearchResults, VerifyConfig};
 use num_bigint::BigUint;
 use serde_json;
 use std::fs::File;
@@ -43,6 +43,18 @@ enum Commands {
         no_parallel: bool,
     },
 
+    #[command(about = "Verify if a number is truly a Lychrel number with extensive testing")]
+    Verify {
+        #[arg(help = "The number to verify")]
+        number: String,
+
+        #[arg(short, long, help = "Maximum iterations to perform (can be very large, e.g., 1000000)")]
+        max_iterations: u64,
+
+        #[arg(short, long, default_value = "10000", help = "Show progress every N iterations")]
+        progress_interval: u64,
+    },
+
     #[command(about = "Run benchmark tests")]
     Benchmark,
 }
@@ -65,6 +77,13 @@ fn main() {
             no_parallel,
         } => {
             search_numbers(start, end, max_iterations, output, !no_parallel);
+        }
+        Commands::Verify {
+            number,
+            max_iterations,
+            progress_interval,
+        } => {
+            verify_number(&number, max_iterations, progress_interval);
         }
         Commands::Benchmark => {
             run_benchmark();
@@ -114,6 +133,87 @@ fn test_number(number_str: &str, max_iterations: u32) {
     }
     
     println!("\nTime elapsed: {:.3}s", elapsed.as_secs_f64());
+}
+
+fn verify_number(number_str: &str, max_iterations: u64, progress_interval: u64) {
+    let number: BigUint = match number_str.parse() {
+        Ok(n) => n,
+        Err(_) => {
+            eprintln!("Error: Invalid number '{}'", number_str);
+            std::process::exit(1);
+        }
+    };
+
+    println!("========================================");
+    println!("  LYCHREL NUMBER VERIFICATION");
+    println!("========================================");
+    println!("Number to verify: {}", number);
+    println!("Max iterations: {}", max_iterations);
+    println!("Progress interval: every {} iterations", progress_interval);
+    println!("========================================\n");
+
+    let config = VerifyConfig {
+        number: number.clone(),
+        max_iterations,
+        progress_interval,
+    };
+
+    let result = verify_lychrel(config, |iteration, current, elapsed| {
+        let digit_count = current.to_string().len();
+        let speed = if elapsed.as_secs_f64() > 0.0 {
+            iteration as f64 / elapsed.as_secs_f64()
+        } else {
+            0.0
+        };
+
+        println!(
+            "[Progress] Iteration: {:<12} | Digits: {:<8} | Time: {:<8.2}s | Speed: {:.0} iter/s",
+            iteration,
+            digit_count,
+            elapsed.as_secs_f64(),
+            speed
+        );
+    });
+
+    println!("\n========================================");
+    println!("  VERIFICATION COMPLETE");
+    println!("========================================");
+    println!("Iterations completed: {}", result.iterations_completed);
+    println!("Total time: {:.3}s", result.total_time.as_secs_f64());
+    println!();
+
+    if result.is_palindrome {
+        if result.iterations_completed == 0 {
+            println!("Result: The number is ALREADY A PALINDROME");
+        } else {
+            println!("Result: PALINDROME REACHED!");
+            println!("Status: This is NOT a Lychrel number");
+            if let Some(final_num) = &result.final_number {
+                let final_str = final_num.to_string();
+                println!("Final number ({} digits):", final_str.len());
+                if final_str.len() > 200 {
+                    println!("  {}...", &final_str[..200]);
+                } else {
+                    println!("  {}", final_num);
+                }
+            }
+        }
+    } else {
+        println!("Result: NO PALINDROME FOUND");
+        println!("Status: This is LIKELY A LYCHREL NUMBER");
+        if let Some(final_num) = &result.final_number {
+            let final_str = final_num.to_string();
+            println!("Final number ({} digits):", final_str.len());
+            if final_str.len() > 200 {
+                println!("  {}...", &final_str[..200]);
+            } else {
+                println!("  {}", final_num);
+            }
+        }
+        println!("\nNote: {} iterations is not definitive proof.", result.iterations_completed);
+        println!("      Consider running more iterations for stronger verification.");
+    }
+    println!("========================================");
 }
 
 fn search_numbers(
@@ -183,15 +283,16 @@ fn run_benchmark() {
     println!("Running benchmarks...\n");
 
     let test_cases = vec![
-        (89u64, "Number 89 (24 iterations to palindrome)"),
-        (196u64, "Number 196 (candidate Lychrel)"),
-        (10677u64, "Number 10677 (large iteration count)"),
+        (89u64, "Number 89 (24 iterations to palindrome)", 1000),
+        (196u64, "Number 196 (candidate Lychrel)", 5000),
+        (10677u64, "Number 10677 (large iteration count)", 5000),
+        (1186060307891929990u64, "Large number (19 digits)", 1000),
     ];
 
-    for (number, description) in test_cases {
+    for (number, description, max_iter) in test_cases {
         println!("Test: {}", description);
         let start_time = Instant::now();
-        let result = lychrel_iteration(BigUint::from(number), 1000);
+        let result = lychrel_iteration(BigUint::from(number), max_iter);
         let elapsed = start_time.elapsed();
         
         println!("  Iterations: {}", result.iterations);
@@ -199,15 +300,29 @@ fn run_benchmark() {
         println!();
     }
 
-    println!("Range search benchmark (1-1000, parallel):");
+    println!("Range search benchmark (1-10000, parallel):");
     let config = SearchConfig {
         start: BigUint::from(1u64),
-        end: BigUint::from(1000u64),
+        end: BigUint::from(10000u64),
         max_iterations: 1000,
         parallel: true,
     };
     let start_time = Instant::now();
     let results = search_range(config);
+    let elapsed = start_time.elapsed();
+    println!("  Tested: {}", results.total_tested);
+    println!("  Potential Lychrel found: {}", results.potential_lychrel.len());
+    println!("  Time: {:.3}s", elapsed.as_secs_f64());
+    
+    println!("\nIntensive search benchmark (1-100000, 1000 max iterations):");
+    let config_intensive = SearchConfig {
+        start: BigUint::from(1u64),
+        end: BigUint::from(100000u64),
+        max_iterations: 1000,
+        parallel: true,
+    };
+    let start_time = Instant::now();
+    let results = search_range(config_intensive);
     let elapsed = start_time.elapsed();
     println!("  Tested: {}", results.total_tested);
     println!("  Potential Lychrel found: {}", results.potential_lychrel.len());

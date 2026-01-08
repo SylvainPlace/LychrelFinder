@@ -16,6 +16,7 @@ The number 196 is the smallest known Lychrel candidate - after millions of itera
 
 - ✅ Test individual numbers for Lychrel property
 - ✅ Search ranges of numbers
+- ✅ Deep verification mode with millions of iterations and live progress tracking
 - ✅ Support for arbitrarily large numbers (BigInt arithmetic)
 - ✅ Parallelized processing for optimal performance
 - ✅ Export results to JSON
@@ -69,6 +70,48 @@ cargo run --release -- search 1 10000 --output results.json
 cargo run --release -- search 1 1000 --no-parallel
 ```
 
+### Verify a Lychrel Candidate (Deep Testing)
+
+For extensive verification with millions of iterations and live progress tracking:
+
+```bash
+# Test 196 with 1 million iterations, showing progress every 10000 iterations
+cargo run --release -- verify 196 --max-iterations 1000000 --progress-interval 10000
+
+# Test with 10 million iterations
+cargo run --release -- verify 196 -m 10000000 -p 50000
+```
+
+Example output:
+```
+========================================
+  LYCHREL NUMBER VERIFICATION
+========================================
+Number to verify: 196
+Max iterations: 1000000
+Progress interval: every 10000 iterations
+========================================
+
+[Progress] Iteration: 10000        | Digits: 4120     | Time: 0.45s    | Speed: 22222 iter/s
+[Progress] Iteration: 20000        | Digits: 8240     | Time: 1.12s    | Speed: 17857 iter/s
+...
+
+========================================
+  VERIFICATION COMPLETE
+========================================
+Iterations completed: 1000000
+Total time: 45.234s
+
+Result: NO PALINDROME FOUND
+Status: This is LIKELY A LYCHREL NUMBER
+Final number (413496 digits):
+  81797...
+
+Note: 1000000 iterations is not definitive proof.
+      Consider running more iterations for stronger verification.
+========================================
+```
+
 ### Performance Benchmark
 
 ```bash
@@ -87,6 +130,11 @@ cargo run --release -- benchmark
 - `--max-iterations` or `-m`: Maximum number of iterations (default: 10000)
 - `--output` or `-o`: JSON output file for results
 - `--no-parallel`: Disable parallel processing
+
+### `verify` Command
+- `number`: The number to verify (required)
+- `--max-iterations` or `-m`: Maximum iterations (no default, must be specified)
+- `--progress-interval` or `-p`: Show progress every N iterations (default: 10000)
 
 ### `benchmark` Command
 Runs a series of predefined performance tests.
@@ -110,7 +158,8 @@ src/
 ├── main.rs       # CLI interface with clap
 ├── lib.rs        # Public library exports
 ├── lychrel.rs    # Core algorithm (reverse, palindrome, iteration)
-└── search.rs     # Search engine with parallelization
+├── search.rs     # Search engine with parallelization
+└── verify.rs     # Deep verification with progress tracking
 
 tests/
 └── integration_tests.rs  # Integration tests
