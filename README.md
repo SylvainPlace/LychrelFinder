@@ -17,6 +17,7 @@ The number 196 is the smallest known Lychrel candidate - after millions of itera
 - ✅ Test individual numbers for Lychrel property
 - ✅ Search ranges of numbers
 - ✅ Deep verification mode with millions of iterations and live progress tracking
+- ✅ Automatic checkpoint/resume system for long-running verifications (enabled by default)
 - ✅ Support for arbitrarily large numbers (BigInt arithmetic)
 - ✅ Parallelized processing for optimal performance
 - ✅ Export results to JSON
@@ -72,14 +73,53 @@ cargo run --release -- search 1 1000 --no-parallel
 
 ### Verify a Lychrel Candidate (Deep Testing)
 
-For extensive verification with millions of iterations and live progress tracking:
+For extensive verification with millions of iterations and live progress tracking.
+**Checkpoints are saved automatically every 10000 iterations by default.**
 
 ```bash
-# Test 196 with 1 million iterations, showing progress every 10000 iterations
-cargo run --release -- verify 196 --max-iterations 1000000 --progress-interval 10000
+# Test 196 with 1 million iterations (auto-saves checkpoints every 10000 iterations)
+cargo run --release -- verify 196 --max-iterations 1000000
 
-# Test with 10 million iterations
-cargo run --release -- verify 196 -m 10000000 -p 50000
+# Test with custom checkpoint interval
+cargo run --release -- verify 196 -m 10000000 -c 50000
+
+# Disable checkpoint saving
+cargo run --release -- verify 196 -m 10000000 -c 0
+```
+
+**Auto-Resume Feature:**
+- If you run `verify` on a number that already has a checkpoint, you'll be asked if you want to resume
+- Press Enter or type 'Y' to continue from where it stopped (with the same checkpoint interval)
+- Type 'N' to start fresh and delete the old checkpoint
+- Use `--force-restart` to automatically restart without asking
+
+```bash
+# Force restart without prompting (useful for scripts)
+cargo run --release -- verify 196 -m 10000000 --force-restart
+
+# Or manually resume from a specific checkpoint file
+cargo run --release -- resume checkpoint_196.json
+```
+
+Example of resuming:
+```
+========================================
+  CHECKPOINT FOUND!
+========================================
+Found existing checkpoint for number: 196
+  Progress: 45.23%
+  Iterations completed: 452300
+  Iterations remaining: 547700
+  Checkpoint interval: every 10000 iterations
+
+Your choice (Y/n): Y
+
+Resuming from checkpoint...
+
+[Progress] Iteration: 453000       | Digits: 186312   | Time: 1.23s    | Speed: 36829 iter/s
+[Progress] Iteration: 454000       | Digits: 186789   | Time: 2.45s    | Speed: 36945 iter/s
+[Progress] Iteration: 455000       | Digits: 187234   | Time: 3.67s    | Speed: 37021 iter/s
+[Progress] Iteration: 460000       | Digits: 189234   | Time: 12.45s   | Speed: 36944 iter/s | ✓ Checkpoint saved
 ```
 
 Example output:
@@ -90,10 +130,13 @@ Example output:
 Number to verify: 196
 Max iterations: 1000000
 Progress interval: every 10000 iterations
+Checkpoint interval: every 10000 iterations
 ========================================
 
-[Progress] Iteration: 10000        | Digits: 4120     | Time: 0.45s    | Speed: 22222 iter/s
-[Progress] Iteration: 20000        | Digits: 8240     | Time: 1.12s    | Speed: 17857 iter/s
+[Progress] Iteration: 10000        | Digits: 4120     | Time: 0.45s    | Speed: 22222 iter/s | ✓ Checkpoint saved
+[Progress] Iteration: 20000        | Digits: 8240     | Time: 1.12s    | Speed: 17857 iter/s | ✓ Checkpoint saved
+...
+[Progress] Iteration: 100000       | Digits: 41234    | Time: 12.34s   | Speed: 21456 iter/s | ✓ Checkpoint saved
 ...
 
 ========================================
@@ -135,6 +178,12 @@ cargo run --release -- benchmark
 - `number`: The number to verify (required)
 - `--max-iterations` or `-m`: Maximum iterations (no default, must be specified)
 - `--progress-interval` or `-p`: Show progress every N iterations (default: 10000)
+- `--checkpoint-interval` or `-c`: Save checkpoint every N iterations (default: 10000, use 0 to disable)
+- `--checkpoint-file` or `-f`: Checkpoint file path (default: checkpoint_<number>.json)
+- `--force-restart`: Ignore existing checkpoint and start fresh
+
+### `resume` Command
+- `checkpoint_file`: Path to the checkpoint file to resume from (required)
 
 ### `benchmark` Command
 Runs a series of predefined performance tests.
@@ -155,11 +204,12 @@ cargo test -- --nocapture
 
 ```
 src/
-├── main.rs       # CLI interface with clap
-├── lib.rs        # Public library exports
-├── lychrel.rs    # Core algorithm (reverse, palindrome, iteration)
-├── search.rs     # Search engine with parallelization
-└── verify.rs     # Deep verification with progress tracking
+├── main.rs        # CLI interface with clap
+├── lib.rs         # Public library exports
+├── lychrel.rs     # Core algorithm (reverse, palindrome, iteration)
+├── search.rs      # Search engine with parallelization
+├── verify.rs      # Deep verification with progress tracking
+└── checkpoint.rs  # Checkpoint save/load for resumable computation
 
 tests/
 └── integration_tests.rs  # Integration tests

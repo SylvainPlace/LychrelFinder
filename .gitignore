@@ -16,8 +16,12 @@
 
 # Output files
 *.json
+!Cargo.lock
 *.txt
 *.log
+
+# Checkpoint files
+checkpoint_*.json
 
 # Windows specific
 Thumbs.db
