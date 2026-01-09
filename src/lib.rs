@@ -22,6 +22,6 @@ pub use search_checkpoint::SearchCheckpoint;
 pub use seed_generator::{GeneratorMode, SeedGenerator};
 pub use thread_cache::{ThreadCache, ThreadInfo};
 pub use verify::{
-    resume_from_checkpoint, resume_from_checkpoint_with_config, verify_lychrel,
-    verify_lychrel_resumable, VerifyConfig, VerifyResult,
+    resume_from_checkpoint, resume_from_checkpoint_with_config, verify_lychrel_resumable,
+    VerifyConfig, VerifyResult,
 };

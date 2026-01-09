@@ -371,7 +371,7 @@ src/
 ├── lib.rs                # Public library exports
 ├── lychrel.rs            # Core algorithm (reverse, palindrome, iteration)
 ├── search.rs             # Search engine with parallelization
-├── verify.rs             # Deep verification with progress tracking
+├── verify.rs             # Deep verification with progress tracking and checkpoint support
 ├── checkpoint.rs         # Checkpoint save/load for resumable computation
 ├── search_checkpoint.rs  # Checkpoints for search operations
 ├── thread_cache.rs       # Thread convergence detection cache
