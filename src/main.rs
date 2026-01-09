@@ -1,5 +1,9 @@
 use clap::{Parser, Subcommand};
-use lychrel_finder::{lychrel_iteration, search_range, search_range_resumable, verify_lychrel_resumable, resume_from_checkpoint_with_config, SearchConfig, SearchResults, VerifyConfig, Checkpoint, SearchCheckpoint, RecordHunter, HuntConfig, GeneratorMode};
+use lychrel_finder::{
+    lychrel_iteration, resume_from_checkpoint_with_config, search_range, search_range_resumable,
+    verify_lychrel_resumable, Checkpoint, GeneratorMode, HuntConfig, RecordHunter,
+    SearchCheckpoint, SearchConfig, SearchResults, VerifyConfig,
+};
 use num_bigint::BigUint;
 use serde_json;
 use std::fs::File;
@@ -42,13 +46,24 @@ enum Commands {
         #[arg(long, help = "Disable parallel processing")]
         no_parallel: bool,
 
-        #[arg(short = 'c', long, help = "Save checkpoint every N numbers tested (default: 1000, use 0 to disable)")]
+        #[arg(
+            short = 'c',
+            long,
+            help = "Save checkpoint every N numbers tested (default: 1000, use 0 to disable)"
+        )]
         checkpoint_interval: Option<u64>,
 
-        #[arg(short = 'f', long, help = "Checkpoint file path (default: search_checkpoint_<start>_<end>.json)")]
+        #[arg(
+            short = 'f',
+            long,
+            help = "Checkpoint file path (default: search_checkpoint_<start>_<end>.json)"
+        )]
         checkpoint_file: Option<String>,
 
-        #[arg(long, help = "Force restart from beginning, ignoring existing checkpoint")]
+        #[arg(
+            long,
+            help = "Force restart from beginning, ignoring existing checkpoint"
+        )]
         force_restart: bool,
     },
 
@@ -57,19 +72,39 @@ enum Commands {
         #[arg(help = "The number to verify")]
         number: String,
 
-        #[arg(short, long, help = "Maximum iterations to perform (can be very large, e.g., 1000000)")]
+        #[arg(
+            short,
+            long,
+            help = "Maximum iterations to perform (can be very large, e.g., 1000000)"
+        )]
         max_iterations: u64,
 
-        #[arg(short, long, default_value = "10000", help = "Show progress every N iterations")]
+        #[arg(
+            short,
+            long,
+            default_value = "10000",
+            help = "Show progress every N iterations"
+        )]
         progress_interval: u64,
 
-        #[arg(short = 'c', long, help = "Save checkpoint every N iterations (default: 10000, use 0 to disable)")]
+        #[arg(
+            short = 'c',
+            long,
+            help = "Save checkpoint every N iterations (default: 10000, use 0 to disable)"
+        )]
         checkpoint_interval: Option<u64>,
 
-        #[arg(short = 'f', long, help = "Checkpoint file path (default: checkpoint_<number>.json)")]
+        #[arg(
+            short = 'f',
+            long,
+            help = "Checkpoint file path (default: checkpoint_<number>.json)"
+        )]
         checkpoint_file: Option<String>,
 
-        #[arg(long, help = "Force restart from beginning, ignoring existing checkpoint")]
+        #[arg(
+            long,
+            help = "Force restart from beginning, ignoring existing checkpoint"
+        )]
         force_restart: bool,
     },
 
@@ -81,19 +116,28 @@ enum Commands {
 
     #[command(about = "Hunt for record-breaking Lychrel numbers with optimized thread detection")]
     HuntRecord {
-        #[arg(long, help = "Configuration file (JSON) - if provided, CLI options override config file values")]
+        #[arg(
+            long,
+            help = "Configuration file (JSON) - if provided, CLI options override config file values"
+        )]
         config: Option<String>,
 
         #[arg(long, help = "Minimum number of digits (overrides config file)")]
         min_digits: Option<usize>,
 
-        #[arg(long, help = "Maximum number of digits - search all numbers up to this size (overrides config file)")]
+        #[arg(
+            long,
+            help = "Maximum number of digits - search all numbers up to this size (overrides config file)"
+        )]
         max_digits: Option<usize>,
 
         #[arg(long, help = "Target minimum iterations (overrides config file)")]
         target_iterations: Option<u32>,
 
-        #[arg(long, help = "Maximum iterations before considering it a Lychrel (overrides config file)")]
+        #[arg(
+            long,
+            help = "Maximum iterations before considering it a Lychrel (overrides config file)"
+        )]
         max_iterations: Option<u32>,
 
         #[arg(long, help = "Target minimum final digits (overrides config file)")]
@@ -105,10 +149,17 @@ enum Commands {
         #[arg(long, help = "Warmup cache with 1-1M range (overrides config file)")]
         warmup: Option<bool>,
 
-        #[arg(long, help = "Generator mode: sequential, random, pattern (overrides config file)")]
+        #[arg(
+            long,
+            help = "Generator mode: sequential, random, pattern (overrides config file)"
+        )]
         mode: Option<String>,
 
-        #[arg(short = 'c', long, help = "Checkpoint every N numbers (overrides config file)")]
+        #[arg(
+            short = 'c',
+            long,
+            help = "Checkpoint every N numbers (overrides config file)"
+        )]
         checkpoint_interval: Option<u64>,
 
         #[arg(short = 'f', long, help = "Checkpoint file (overrides config file)")]
@@ -145,7 +196,16 @@ fn main() {
             checkpoint_file,
             force_restart,
         } => {
-            search_numbers(start, end, max_iterations, output, !no_parallel, checkpoint_interval, checkpoint_file, force_restart);
+            search_numbers(
+                start,
+                end,
+                max_iterations,
+                output,
+                !no_parallel,
+                checkpoint_interval,
+                checkpoint_file,
+                force_restart,
+            );
         }
         Commands::Verify {
             number,
@@ -155,7 +215,14 @@ fn main() {
             checkpoint_file,
             force_restart,
         } => {
-            verify_number(&number, max_iterations, progress_interval, checkpoint_interval, checkpoint_file, force_restart);
+            verify_number(
+                &number,
+                max_iterations,
+                progress_interval,
+                checkpoint_interval,
+                checkpoint_file,
+                force_restart,
+            );
         }
         Commands::Resume { checkpoint_file } => {
             resume_verification(&checkpoint_file);
@@ -215,7 +282,7 @@ fn test_number(number_str: &str, max_iterations: u32) {
 
     println!("Results:");
     println!("  Iterations: {}", result.iterations);
-    
+
     if result.is_palindrome {
         if result.iterations == 0 {
             println!("  Status: Already a palindrome");
@@ -230,13 +297,17 @@ fn test_number(number_str: &str, max_iterations: u32) {
         if let Some(final_num) = &result.final_number {
             let final_str = final_num.to_string();
             if final_str.len() > 100 {
-                println!("  Final number: {}... ({} digits)", &final_str[..100], final_str.len());
+                println!(
+                    "  Final number: {}... ({} digits)",
+                    &final_str[..100],
+                    final_str.len()
+                );
             } else {
                 println!("  Final number: {}", final_num);
             }
         }
     }
-    
+
     println!("\nTime elapsed: {:.3}s", elapsed.as_secs_f64());
 }
 
@@ -256,15 +327,14 @@ fn verify_number(
         }
     };
 
-    let checkpoint_file = checkpoint_file.unwrap_or_else(|| {
-        format!("checkpoint_{}.json", number_str)
-    });
+    let checkpoint_file =
+        checkpoint_file.unwrap_or_else(|| format!("checkpoint_{}.json", number_str));
 
     // Default checkpoint interval is 10000 if not specified
     let checkpoint_interval = match checkpoint_interval {
-        Some(0) => None,  // 0 explicitly disables checkpoints
+        Some(0) => None, // 0 explicitly disables checkpoints
         Some(n) => Some(n),
-        None => Some(10000),  // Default: save every 10000 iterations
+        None => Some(10000), // Default: save every 10000 iterations
     };
 
     // Check if checkpoint exists and offer to resume
@@ -273,11 +343,26 @@ fn verify_number(
             println!("========================================");
             println!("  CHECKPOINT FOUND!");
             println!("========================================");
-            println!("Found existing checkpoint for number: {}", existing_checkpoint.start_number);
-            println!("  Progress: {:.2}%", existing_checkpoint.progress_percentage());
-            println!("  Iterations completed: {}", existing_checkpoint.iterations_completed);
-            println!("  Iterations remaining: {}", existing_checkpoint.iterations_remaining());
-            println!("  Current number digits: {}", existing_checkpoint.digit_count());
+            println!(
+                "Found existing checkpoint for number: {}",
+                existing_checkpoint.start_number
+            );
+            println!(
+                "  Progress: {:.2}%",
+                existing_checkpoint.progress_percentage()
+            );
+            println!(
+                "  Iterations completed: {}",
+                existing_checkpoint.iterations_completed
+            );
+            println!(
+                "  Iterations remaining: {}",
+                existing_checkpoint.iterations_remaining()
+            );
+            println!(
+                "  Current number digits: {}",
+                existing_checkpoint.digit_count()
+            );
             println!("  Time elapsed: {:.3}s", existing_checkpoint.elapsed_secs);
             println!("  Saved at: {}", existing_checkpoint.timestamp);
             println!("========================================");
@@ -393,7 +478,10 @@ fn verify_number(
                 println!("  {}", final_num);
             }
         }
-        println!("\nNote: {} iterations is not definitive proof.", result.iterations_completed);
+        println!(
+            "\nNote: {} iterations is not definitive proof.",
+            result.iterations_completed
+        );
         println!("      Consider running more iterations for stronger verification.");
     }
     println!("========================================");
@@ -415,18 +503,34 @@ fn resume_verification(checkpoint_file: &str) {
 
     println!("Checkpoint information:");
     println!("  Start number: {}", checkpoint.start_number);
-    println!("  Current number: {} ({} digits)", 
-        checkpoint.current_number.to_string().chars().take(50).collect::<String>(),
-        checkpoint.digit_count());
-    println!("  Iterations completed: {}", checkpoint.iterations_completed);
-    println!("  Iterations remaining: {}", checkpoint.iterations_remaining());
+    println!(
+        "  Current number: {} ({} digits)",
+        checkpoint
+            .current_number
+            .to_string()
+            .chars()
+            .take(50)
+            .collect::<String>(),
+        checkpoint.digit_count()
+    );
+    println!(
+        "  Iterations completed: {}",
+        checkpoint.iterations_completed
+    );
+    println!(
+        "  Iterations remaining: {}",
+        checkpoint.iterations_remaining()
+    );
     println!("  Progress: {:.2}%", checkpoint.progress_percentage());
     println!("  Elapsed time: {:.3}s", checkpoint.elapsed_secs);
     println!("  Saved at: {}", checkpoint.timestamp);
-    
+
     let checkpoint_interval = checkpoint.checkpoint_interval.unwrap_or(0);
     if checkpoint_interval > 0 {
-        println!("  Checkpoint interval: every {} iterations", checkpoint_interval);
+        println!(
+            "  Checkpoint interval: every {} iterations",
+            checkpoint_interval
+        );
     }
     println!("========================================\n");
 
@@ -460,7 +564,8 @@ fn resume_verification(checkpoint_file: &str) {
                     speed
                 );
             }
-        });
+        },
+    );
 
     println!("\n========================================");
     println!("  VERIFICATION COMPLETE");
@@ -497,7 +602,10 @@ fn resume_verification(checkpoint_file: &str) {
                 println!("  {}", final_num);
             }
         }
-        println!("\nNote: {} iterations is not definitive proof.", result.iterations_completed);
+        println!(
+            "\nNote: {} iterations is not definitive proof.",
+            result.iterations_completed
+        );
         println!("      Consider running more iterations for stronger verification.");
     }
     println!("========================================");
@@ -513,9 +621,8 @@ fn search_numbers(
     checkpoint_file: Option<String>,
     force_restart: bool,
 ) {
-    let checkpoint_file = checkpoint_file.unwrap_or_else(|| {
-        format!("search_checkpoint_{}_{}.json", start, end)
-    });
+    let checkpoint_file =
+        checkpoint_file.unwrap_or_else(|| format!("search_checkpoint_{}_{}.json", start, end));
 
     // Default checkpoint interval is 1000 if not specified
     let checkpoint_interval = match checkpoint_interval {
@@ -530,17 +637,32 @@ fn search_numbers(
             println!("========================================");
             println!("  SEARCH CHECKPOINT FOUND!");
             println!("========================================");
-            println!("Search range: {} to {}", existing_checkpoint.start_range, existing_checkpoint.end_range);
-            println!("  Progress: {:.2}%", existing_checkpoint.progress_percentage());
+            println!(
+                "Search range: {} to {}",
+                existing_checkpoint.start_range, existing_checkpoint.end_range
+            );
+            println!(
+                "  Progress: {:.2}%",
+                existing_checkpoint.progress_percentage()
+            );
             println!("  Numbers tested: {}", existing_checkpoint.numbers_tested);
-            println!("  Numbers remaining: {}", existing_checkpoint.numbers_remaining());
-            println!("  Potential Lychrel found so far: {}", existing_checkpoint.potential_lychrel_found.len());
+            println!(
+                "  Numbers remaining: {}",
+                existing_checkpoint.numbers_remaining()
+            );
+            println!(
+                "  Potential Lychrel found so far: {}",
+                existing_checkpoint.potential_lychrel_found.len()
+            );
             println!("  Elapsed time: {:.3}s", existing_checkpoint.elapsed_secs);
             println!("  Saved at: {}", existing_checkpoint.timestamp);
-            
+
             let checkpoint_interval_val = existing_checkpoint.checkpoint_interval.unwrap_or(0);
             if checkpoint_interval_val > 0 {
-                println!("  Checkpoint interval: every {} numbers", checkpoint_interval_val);
+                println!(
+                    "  Checkpoint interval: every {} numbers",
+                    checkpoint_interval_val
+                );
             }
             println!("========================================");
             println!("\nDo you want to resume from this checkpoint?");
@@ -579,7 +701,10 @@ fn search_numbers(
 
     println!("Searching range: {} to {}", start, end);
     println!("Max iterations: {}", max_iterations);
-    println!("Parallel processing: {}", if parallel { "enabled" } else { "disabled" });
+    println!(
+        "Parallel processing: {}",
+        if parallel { "enabled" } else { "disabled" }
+    );
     if !parallel {
         if let Some(interval) = checkpoint_interval {
             println!("Checkpoint interval: every {} numbers", interval);
@@ -610,11 +735,11 @@ fn search_numbers(
             checkpoint_interval,
             checkpoint_file: Some(checkpoint_file.clone()),
         };
-        
+
         let total_numbers = end - start + 1;
         let mut last_display = 0u64;
         let display_interval = 100;
-        
+
         search_range_resumable(config, |tested, current, is_checkpoint| {
             if is_checkpoint || tested - last_display >= display_interval {
                 let progress = (tested as f64 / total_numbers as f64) * 100.0;
@@ -633,7 +758,7 @@ fn search_numbers(
             }
         })
     };
-    
+
     let elapsed = start_time.elapsed();
 
     print_search_results(&results, elapsed);
@@ -652,7 +777,7 @@ fn search_numbers(
 
 fn resume_search(checkpoint_file: &str, output_file: Option<String>) {
     use lychrel_finder::resume_search_from_checkpoint;
-    
+
     let checkpoint = match SearchCheckpoint::load(checkpoint_file) {
         Ok(cp) => cp,
         Err(e) => {
@@ -663,7 +788,7 @@ fn resume_search(checkpoint_file: &str, output_file: Option<String>) {
 
     let total_numbers = if let (Ok(start), Ok(end)) = (
         checkpoint.start_range.to_string().parse::<u64>(),
-        checkpoint.end_range.to_string().parse::<u64>()
+        checkpoint.end_range.to_string().parse::<u64>(),
     ) {
         end - start + 1
     } else {
@@ -672,7 +797,7 @@ fn resume_search(checkpoint_file: &str, output_file: Option<String>) {
 
     let mut last_display = checkpoint.numbers_tested;
     let display_interval = 100;
-    
+
     let start_time = Instant::now();
     let results = resume_search_from_checkpoint(checkpoint, |tested, current, is_checkpoint| {
         if is_checkpoint || tested - last_display >= display_interval {
@@ -691,7 +816,7 @@ fn resume_search(checkpoint_file: &str, output_file: Option<String>) {
             last_display = tested;
         }
     });
-    
+
     let elapsed = start_time.elapsed();
 
     print_search_results(&results, elapsed);
@@ -711,10 +836,16 @@ fn resume_search(checkpoint_file: &str, output_file: Option<String>) {
 fn print_search_results(results: &SearchResults, elapsed: std::time::Duration) {
     println!("Search complete!");
     println!("  Total tested: {}", results.total_tested);
-    println!("  Potential Lychrel numbers found: {}", results.potential_lychrel.len());
-    println!("  Numbers reaching palindromes: {}", results.palindromes_found.len());
+    println!(
+        "  Potential Lychrel numbers found: {}",
+        results.potential_lychrel.len()
+    );
+    println!(
+        "  Numbers reaching palindromes: {}",
+        results.palindromes_found.len()
+    );
     println!("  Time elapsed: {:.3}s", elapsed.as_secs_f64());
-    
+
     if !results.potential_lychrel.is_empty() {
         println!("\nPotential Lychrel numbers:");
         for result in &results.potential_lychrel {
@@ -725,18 +856,16 @@ fn print_search_results(results: &SearchResults, elapsed: std::time::Duration) {
 
 fn save_results_to_file(results: &SearchResults, filename: &str) {
     match serde_json::to_string_pretty(&results.potential_lychrel) {
-        Ok(json) => {
-            match File::create(filename) {
-                Ok(mut file) => {
-                    if let Err(e) = file.write_all(json.as_bytes()) {
-                        eprintln!("Error writing to file: {}", e);
-                    } else {
-                        println!("\nResults saved to: {}", filename);
-                    }
+        Ok(json) => match File::create(filename) {
+            Ok(mut file) => {
+                if let Err(e) = file.write_all(json.as_bytes()) {
+                    eprintln!("Error writing to file: {}", e);
+                } else {
+                    println!("\nResults saved to: {}", filename);
                 }
-                Err(e) => eprintln!("Error creating file: {}", e),
             }
-        }
+            Err(e) => eprintln!("Error creating file: {}", e),
+        },
         Err(e) => eprintln!("Error serializing results: {}", e),
     }
 }
@@ -756,7 +885,7 @@ fn run_benchmark() {
         let start_time = Instant::now();
         let result = lychrel_iteration(BigUint::from(number), max_iter);
         let elapsed = start_time.elapsed();
-        
+
         println!("  Iterations: {}", result.iterations);
         println!("  Time: {:.6}s", elapsed.as_secs_f64());
         println!();
@@ -775,9 +904,12 @@ fn run_benchmark() {
     let results = search_range(config);
     let elapsed = start_time.elapsed();
     println!("  Tested: {}", results.total_tested);
-    println!("  Potential Lychrel found: {}", results.potential_lychrel.len());
+    println!(
+        "  Potential Lychrel found: {}",
+        results.potential_lychrel.len()
+    );
     println!("  Time: {:.3}s", elapsed.as_secs_f64());
-    
+
     println!("\nIntensive search benchmark (1-100000, 1000 max iterations):");
     let config_intensive = SearchConfig {
         start: BigUint::from(1u64),
@@ -791,7 +923,10 @@ fn run_benchmark() {
     let results = search_range(config_intensive);
     let elapsed = start_time.elapsed();
     println!("  Tested: {}", results.total_tested);
-    println!("  Potential Lychrel found: {}", results.potential_lychrel.len());
+    println!(
+        "  Potential Lychrel found: {}",
+        results.potential_lychrel.len()
+    );
     println!("  Time: {:.3}s", elapsed.as_secs_f64());
 }
 
@@ -809,7 +944,7 @@ fn parse_mode(mode_str: &str) -> GeneratorMode {
 
 fn init_config_file(output: &str) {
     let config = HuntConfig::default();
-    
+
     match config.save_to_file(std::path::Path::new(output)) {
         Ok(_) => {
             println!("✓ Default configuration file created: {}", output);
@@ -820,7 +955,10 @@ fn init_config_file(output: &str) {
             } else {
                 println!("  Max digits:          not set");
             }
-            println!("  Target iterations:   {} - {}", config.target_iterations, config.max_iterations);
+            println!(
+                "  Target iterations:   {} - {}",
+                config.target_iterations, config.max_iterations
+            );
             println!("  Target final digits: {}", config.target_final_digits);
             println!("  Cache size:          {}", config.cache_size);
             println!("  Generator mode:      {:?}", config.generator_mode);
@@ -909,63 +1047,85 @@ fn hunt_records_with_config(config: HuntConfig) {
     println!("Configuration:");
     println!("  Min digits:          {}", config.min_digits);
     if let Some(max_digits) = config.max_digits {
-        println!("  Max digits:          {} (testing all numbers with {} to {} digits)", max_digits, config.min_digits, max_digits);
+        println!(
+            "  Max digits:          {} (testing all numbers with {} to {} digits)",
+            max_digits, config.min_digits, max_digits
+        );
     } else {
-        println!("  Max digits:          not set (testing only {}-digit numbers)", config.min_digits);
+        println!(
+            "  Max digits:          not set (testing only {}-digit numbers)",
+            config.min_digits
+        );
     }
-    println!("  Target iterations:   {} - {}", config.target_iterations, config.max_iterations);
+    println!(
+        "  Target iterations:   {} - {}",
+        config.target_iterations, config.max_iterations
+    );
     println!("  Target final digits: {}", config.target_final_digits);
     println!("  Cache size:          {}", config.cache_size);
     println!("  Generator mode:      {:?}", config.generator_mode);
-    println!("  Checkpoint interval: {} numbers", config.checkpoint_interval);
+    println!(
+        "  Checkpoint interval: {} numbers",
+        config.checkpoint_interval
+    );
     println!("  Checkpoint file:     {}", config.checkpoint_file);
     println!("  Warmup:              {}", config.warmup);
     println!("═══════════════════════════════════════════\n");
-    
+
     let warmup = config.warmup;
-    
+
     // Create hunter
     let mut hunter = RecordHunter::new(config);
-    
+
     // Warmup if requested
     if warmup {
         hunter.warmup_cache();
     }
-    
+
     // Start hunting
     let results = hunter.hunt();
-    
+
     // Summary
     println!("\n📊 FINAL SUMMARY");
     println!("═══════════════════════════════════════════");
     println!("Numbers tested:      {}", results.numbers_tested);
     println!("Seeds tested:        {}", results.seeds_tested);
     println!("Records found:       {}", results.records.len());
-    println!("Candidates (200+):   {}", results.candidates_above_200.len());
+    println!(
+        "Candidates (200+):   {}",
+        results.candidates_above_200.len()
+    );
     println!("Best iterations:     {}", results.best_iterations_found);
-    println!("Time elapsed:        {:.2}s", results.elapsed_time.as_secs_f64());
-    
+    println!(
+        "Time elapsed:        {:.2}s",
+        results.elapsed_time.as_secs_f64()
+    );
+
     if results.elapsed_time.as_secs() > 0 {
         let rate = results.numbers_tested as f64 / results.elapsed_time.as_secs() as f64;
         println!("Average rate:        {:.0} numbers/second", rate);
     }
-    
+
     println!("═══════════════════════════════════════════\n");
-    
+
     if !results.records.is_empty() {
         println!("🎉 {} RECORD PALINDROME(S) FOUND!", results.records.len());
         for record in &results.records {
-            println!("  - Number: {} ({} iterations to palindrome, {} final digits)",
-                     record.number, record.iterations, record.final_digits);
+            println!(
+                "  - Number: {} ({} iterations to palindrome, {} final digits)",
+                record.number, record.iterations, record.final_digits
+            );
         }
         println!();
     }
-    
+
     if !results.candidates_above_200.is_empty() && results.candidates_above_200.len() <= 20 {
         println!("📋 Promising palindromes (200+ iterations):");
         for candidate in &results.candidates_above_200 {
-            println!("  - {} ({} iter to palindrome, {} digits)",
-                     candidate.number, candidate.iterations, candidate.final_digits);
+            println!(
+                "  - {} ({} iter to palindrome, {} digits)",
+                candidate.number, candidate.iterations, candidate.final_digits
+            );
         }
         println!();
     }

@@ -1,6 +1,6 @@
+use crate::thread_cache::{ThreadCache, ThreadInfo};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use crate::thread_cache::{ThreadCache, ThreadInfo};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IterationResult {
@@ -63,6 +63,32 @@ pub fn lychrel_iteration(start: BigUint, max_iterations: u32) -> IterationResult
 }
 
 /// Lychrel iteration with thread cache for convergence detection
+///
+/// This function performs the Lychrel iteration on a given number while using a cache
+/// to detect convergence with previously tested numbers. If a number converges to a known
+/// thread, it can skip the remaining iterations and return the cached result.
+///
+/// # Arguments
+///
+/// * `start` - The starting number to test
+/// * `max_iterations` - The maximum number of iterations to perform
+/// * `cache` - A mutable reference to the thread cache for convergence detection
+///
+/// # Returns
+///
+/// An `IterationResult` containing information about the iteration process and outcome
+///
+/// # Examples
+///
+/// ```
+/// use lychrel_finder::lychrel::lychrel_iteration_with_cache;
+/// use lychrel_finder::thread_cache::ThreadCache;
+/// use num_bigint::BigUint;
+///
+/// let mut cache = ThreadCache::new(1000);
+/// let result = lychrel_iteration_with_cache(BigUint::from(196u32), 100, &mut cache);
+/// assert!(!result.is_palindrome);
+/// ```
 pub fn lychrel_iteration_with_cache(
     start: BigUint,
     max_iterations: u32,
@@ -88,7 +114,10 @@ pub fn lychrel_iteration_with_cache(
         if let Some(thread_info) = cache.check(&current) {
             // Found in cache! We know where this converges
             let total_iterations = if thread_info.reached_palindrome {
-                iteration_count + thread_info.palindrome_at_iteration.unwrap_or(thread_info.max_iterations_tested)
+                iteration_count
+                    + thread_info
+                        .palindrome_at_iteration
+                        .unwrap_or(thread_info.max_iterations_tested)
             } else {
                 // Still a potential Lychrel, but we've tested it before
                 iteration_count + thread_info.max_iterations_tested
@@ -161,9 +190,15 @@ mod tests {
 
     #[test]
     fn test_reverse_number() {
-        assert_eq!(reverse_number(&BigUint::from(123u32)), BigUint::from(321u32));
+        assert_eq!(
+            reverse_number(&BigUint::from(123u32)),
+            BigUint::from(321u32)
+        );
         assert_eq!(reverse_number(&BigUint::from(100u32)), BigUint::from(1u32));
-        assert_eq!(reverse_number(&BigUint::from(505u32)), BigUint::from(505u32));
+        assert_eq!(
+            reverse_number(&BigUint::from(505u32)),
+            BigUint::from(505u32)
+        );
     }
 
     #[test]

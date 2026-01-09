@@ -6,8 +6,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::lychrel::{lychrel_iteration, lychrel_iteration_with_cache};
-use crate::thread_cache::ThreadCache;
 use crate::seed_generator::{GeneratorMode, SeedGenerator};
+use crate::thread_cache::ThreadCache;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HuntConfig {
@@ -15,7 +15,7 @@ pub struct HuntConfig {
     #[serde(default)]
     pub max_digits: Option<usize>,
     pub target_iterations: u32,
-    pub max_iterations: u32,  // Max iterations before considering it a Lychrel
+    pub max_iterations: u32, // Max iterations before considering it a Lychrel
     pub target_final_digits: usize,
     pub cache_size: usize,
     #[serde(default = "default_generator_mode")]
@@ -34,7 +34,7 @@ pub struct RecordHunter {
     pub min_digits: usize,
     pub max_digits: Option<usize>,
     pub current_digits: usize,
-    pub current_range_tested: u64,  // Count for current digit range only
+    pub current_range_tested: u64, // Count for current digit range only
     pub target_iterations: u32,
     pub max_iterations: u32,
     pub target_final_digits: usize,
@@ -61,7 +61,7 @@ pub struct HuntStatistics {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordCandidate {
-    pub number: String,  // Store as String for serialization
+    pub number: String, // Store as String for serialization
     pub iterations: u32,
     pub final_digits: usize,
     pub found_at: String,
@@ -143,7 +143,7 @@ impl RecordHunter {
     fn calculate_total_numbers(&self) -> u64 {
         let max_d = self.max_digits.unwrap_or(self.min_digits);
         let mut total = 0u64;
-        
+
         for d in self.min_digits..=max_d {
             // For d digits: 10^d - 10^(d-1) numbers
             // But we only test seeds (approx 50%), so divide by 2
@@ -158,14 +158,14 @@ impl RecordHunter {
             };
             total = total.saturating_add(count_for_d);
         }
-        
+
         total
     }
 
     /// Calculate how many numbers have been processed so far
     fn calculate_processed_numbers(&self) -> u64 {
         let mut processed = 0u64;
-        
+
         // Add all numbers from completed digit ranges
         for d in self.min_digits..self.current_digits {
             let count_for_d = if d <= 18 {
@@ -177,7 +177,7 @@ impl RecordHunter {
             };
             processed = processed.saturating_add(count_for_d);
         }
-        
+
         // Add numbers tested in current digit range
         processed.saturating_add(self.current_range_tested)
     }
@@ -187,12 +187,12 @@ impl RecordHunter {
         if self.max_digits.is_none() {
             return 0.0; // Can't calculate progress without max_digits
         }
-        
+
         let total = self.calculate_total_numbers();
         if total == 0 {
             return 0.0;
         }
-        
+
         let processed = self.calculate_processed_numbers();
         (processed as f64 / total as f64) * 100.0
     }
@@ -201,39 +201,62 @@ impl RecordHunter {
     pub fn warmup_cache(&mut self) {
         println!("🔥 Warming up thread cache with known range (1-1,000,000)...");
         let warmup_start = Instant::now();
-        
+
         for n in 1u32..=1_000_000 {
-            lychrel_iteration_with_cache(
-                BigUint::from(n),
-                1000,
-                &mut self.thread_cache
-            );
-            
+            lychrel_iteration_with_cache(BigUint::from(n), 1000, &mut self.thread_cache);
+
             if n % 100_000 == 0 {
                 println!("  Warmup progress: {}/1,000,000", n);
             }
         }
-        
+
         let cache_stats = self.thread_cache.stats();
-        println!("✓ Cache warmed up in {:.2}s", warmup_start.elapsed().as_secs_f64());
+        println!(
+            "✓ Cache warmed up in {:.2}s",
+            warmup_start.elapsed().as_secs_f64()
+        );
         println!("  Cache entries: {}", cache_stats.entries);
-        println!("  Hit rate during warmup: {:.1}%", cache_stats.hit_rate * 100.0);
+        println!(
+            "  Hit rate during warmup: {:.1}%",
+            cache_stats.hit_rate * 100.0
+        );
         println!();
     }
 
     /// Main hunting loop
+    ///
+    /// This function performs the main hunting loop for finding record-breaking
+    /// Lychrel numbers. It generates candidate numbers using the configured generator,
+    /// tests them for Lychrel properties, and keeps track of statistics and records.
+    /// The function also periodically saves checkpoints and displays progress.
+    ///
+    /// # Returns
+    ///
+    /// A `HuntResults` struct containing statistics and results of the hunt
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lychrel_finder::record_hunt::{RecordHunter, HuntConfig};
+    /// use lychrel_finder::seed_generator::GeneratorMode;
+    ///
+    /// let config = HuntConfig::default();
+    /// let mut hunter = RecordHunter::new(config);
+    /// let results = hunter.hunt();
+    /// println!("Found {} records", results.records.len());
+    /// ```
     pub fn hunt(&mut self) -> HuntResults {
         println!("🎯 Starting record hunt...\n");
-        
+
         loop {
             if let Some(candidate) = self.seed_generator.next() {
                 self.test_candidate(candidate);
-                
+
                 // Checkpoint periodically
                 if self.stats.numbers_tested % self.checkpoint_interval == 0 {
                     self.save_checkpoint();
                 }
-                
+
                 // Display stats periodically
                 if self.stats.numbers_tested % 10000 == 0 {
                     self.print_stats();
@@ -247,8 +270,12 @@ impl RecordHunter {
                         self.current_range_tested = 0;
                         self.current_digits += 1;
                         let progress = self.calculate_progress_percentage();
-                        println!("\n📊 Moving to {}-digit numbers... (Overall progress: {:.2}%)\n", self.current_digits, progress);
-                        self.seed_generator = SeedGenerator::new(self.current_digits, self.generator_mode.clone());
+                        println!(
+                            "\n📊 Moving to {}-digit numbers... (Overall progress: {:.2}%)\n",
+                            self.current_digits, progress
+                        );
+                        self.seed_generator =
+                            SeedGenerator::new(self.current_digits, self.generator_mode.clone());
                         continue;
                     }
                 }
@@ -256,58 +283,84 @@ impl RecordHunter {
                 break;
             }
         }
-        
+
         self.finalize()
     }
 
+    /// Test a candidate number for Lychrel properties
+    ///
+    /// This function tests a candidate number to determine if it's a potential
+    /// Lychrel number or if it reaches a palindrome. It performs a quick filter
+    /// phase first, then a full test with cache if the candidate passes the filter.
+    ///
+    /// # Arguments
+    ///
+    /// * `candidate` - The number to test as a BigUint
+    ///
+    /// # Process
+    ///
+    /// 1. Quick filter phase (50 iterations)
+    ///    - Checks digit growth rate
+    ///    - Rejects if palindrome found too quickly
+    ///    - Rejects if growth is too slow
+    ///
+    /// 2. Full test phase (up to max_iterations)
+    ///    - Uses cached results if available
+    ///    - Updates cache with new results
+    ///    - Tracks records and promising candidates
     fn test_candidate(&mut self, candidate: BigUint) {
         self.stats.numbers_tested += 1;
         self.current_range_tested += 1;
-        
+
         // Phase 1: Quick filter (50 first iterations)
         let quick_result = lychrel_iteration(candidate.clone(), 50);
-        
+
         // Reject if growth too slow
-        let digit_growth = quick_result.final_number.as_ref()
+        let digit_growth = quick_result
+            .final_number
+            .as_ref()
             .map(|n| n.to_string().len() as f64 / 50.0)
             .unwrap_or(0.0);
-        
+
         if digit_growth < 0.4 {
-            return;  // Growth too slow
+            return; // Growth too slow
         }
-        
+
         // Reject if palindrome found too quickly
         if quick_result.is_palindrome {
             return;
         }
-        
+
         // Phase 2: Full test with cache
         // Test up to max_iterations to determine if it's truly a record or a Lychrel
         let result = lychrel_iteration_with_cache(
             candidate.clone(),
             self.max_iterations,
-            &mut self.thread_cache
+            &mut self.thread_cache,
         );
-        
+
         self.stats.seeds_tested += 1;
-        
+
         // Update cache stats
         let cache_stats = self.thread_cache.stats();
         self.stats.cache_hits = cache_stats.hits;
         self.stats.cache_misses = cache_stats.misses;
-        
+
         // Check if it's a record
         // A record is a number that:
         // 1. REACHES a palindrome (not a Lychrel)
         // 2. Takes between target_iterations and max_iterations
         // 3. Numbers beyond max_iterations without palindrome are likely true Lychrels
-        if result.is_palindrome 
-            && result.iterations >= self.target_iterations 
-            && result.iterations <= self.max_iterations {
-            let final_digits = result.final_number.as_ref()
+        if result.is_palindrome
+            && result.iterations >= self.target_iterations
+            && result.iterations <= self.max_iterations
+        {
+            let final_digits = result
+                .final_number
+                .as_ref()
                 .map(|n| n.to_string().len())
                 .unwrap_or(0);
-            
+
             if final_digits >= self.target_final_digits {
                 // RECORD FOUND! Update best stats for actual records
                 if result.iterations > self.stats.best_iterations_found {
@@ -316,7 +369,7 @@ impl RecordHunter {
                 if final_digits > self.stats.best_digits_found {
                     self.stats.best_digits_found = final_digits;
                 }
-                
+
                 self.handle_record_found(RecordCandidate {
                     number: candidate.to_string(),
                     iterations: result.iterations,
@@ -325,13 +378,15 @@ impl RecordHunter {
                 });
             }
         }
-        
+
         // Track promising candidates (200+ iterations) - ONLY palindromes, not Lychrels!
         if result.is_palindrome && result.iterations >= 200 {
-            let final_digits = result.final_number.as_ref()
+            let final_digits = result
+                .final_number
+                .as_ref()
                 .map(|n| n.to_string().len())
                 .unwrap_or(0);
-            
+
             self.stats.candidates_above_200.push(RecordCandidate {
                 number: candidate.to_string(),
                 iterations: result.iterations,
@@ -350,7 +405,7 @@ impl RecordHunter {
         println!("Final digits: {}", record.final_digits);
         println!("Found at:    {}", record.found_at);
         println!("═══════════════════════════════════════════\n");
-        
+
         // Save to dedicated file
         let record_file = format!("record_{}_iter.json", record.iterations);
         if let Ok(mut file) = File::create(&record_file) {
@@ -368,10 +423,10 @@ impl RecordHunter {
         } else {
             0.0
         };
-        
+
         let cache_hit_rate = self.thread_cache.hit_rate() * 100.0;
         let gen_stats = self.seed_generator.get_stats();
-        
+
         // Calculate progress percentage if max_digits is set
         if let Some(_max_d) = self.max_digits {
             let progress = self.calculate_progress_percentage();
@@ -402,8 +457,8 @@ impl RecordHunter {
     }
 
     pub fn save_checkpoint(&self) {
-        use crate::record_checkpoint::{RecordHuntCheckpoint, CheckpointConfig};
-        
+        use crate::record_checkpoint::{CheckpointConfig, RecordHuntCheckpoint};
+
         let checkpoint = RecordHuntCheckpoint::new(
             &self.seed_generator.current_position(),
             self.current_digits,
@@ -420,24 +475,30 @@ impl RecordHunter {
                 checkpoint_interval: self.checkpoint_interval,
             },
         );
-        
+
         // Save checkpoint
         if let Err(e) = checkpoint.save(std::path::Path::new(&self.checkpoint_file)) {
             eprintln!("  ✗ Failed to save checkpoint: {}", e);
         } else {
             // Save thread cache separately
             let cache_file = format!("{}_cache.json", self.checkpoint_file);
-            if let Err(e) = self.thread_cache.save_to_file(std::path::Path::new(&cache_file)) {
+            if let Err(e) = self
+                .thread_cache
+                .save_to_file(std::path::Path::new(&cache_file))
+            {
                 eprintln!("  ✗ Failed to save cache: {}", e);
             } else {
-                println!("  ✓ Checkpoint saved at {} numbers tested", self.stats.numbers_tested);
+                println!(
+                    "  ✓ Checkpoint saved at {} numbers tested",
+                    self.stats.numbers_tested
+                );
             }
         }
     }
 
     fn finalize(&self) -> HuntResults {
         let elapsed = self.stats.start_time.elapsed();
-        
+
         println!("\n🏁 ═══════════════════════════════════════════");
         println!("   HUNT COMPLETE");
         println!("═══════════════════════════════════════════");
@@ -445,16 +506,24 @@ impl RecordHunter {
         println!("Seeds tested:        {}", self.stats.seeds_tested);
         println!("Best iterations:     {}", self.stats.best_iterations_found);
         println!("Best final digits:   {}", self.stats.best_digits_found);
-        println!("Candidates (200+):   {}", self.stats.candidates_above_200.len());
+        println!(
+            "Candidates (200+):   {}",
+            self.stats.candidates_above_200.len()
+        );
         println!("Time elapsed:        {:.2}s", elapsed.as_secs_f64());
         println!("═══════════════════════════════════════════\n");
-        
+
         // Find records (targets met) - all candidates are palindromes, not Lychrels
-        let records: Vec<RecordCandidate> = self.stats.candidates_above_200.iter()
-            .filter(|c| c.iterations >= self.target_iterations && c.final_digits >= self.target_final_digits)
+        let records: Vec<RecordCandidate> = self
+            .stats
+            .candidates_above_200
+            .iter()
+            .filter(|c| {
+                c.iterations >= self.target_iterations && c.final_digits >= self.target_final_digits
+            })
             .cloned()
             .collect();
-        
+
         HuntResults {
             numbers_tested: self.stats.numbers_tested,
             seeds_tested: self.stats.seeds_tested,

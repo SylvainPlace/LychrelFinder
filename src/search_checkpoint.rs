@@ -1,9 +1,9 @@
+use crate::lychrel::IterationResult;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
-use crate::lychrel::IterationResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchCheckpoint {
@@ -32,7 +32,8 @@ impl SearchCheckpoint {
         elapsed_secs: f64,
     ) -> Self {
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        let potential_lychrel_found = potential_lychrel.iter()
+        let potential_lychrel_found = potential_lychrel
+            .iter()
             .map(|r| r.start_number.clone())
             .collect();
 
@@ -73,10 +74,10 @@ impl SearchCheckpoint {
         if self.end_range <= self.start_range {
             return 100.0;
         }
-        
+
         let total = if let (Ok(start), Ok(end)) = (
             self.start_range.to_string().parse::<u64>(),
-            self.end_range.to_string().parse::<u64>()
+            self.end_range.to_string().parse::<u64>(),
         ) {
             end - start + 1
         } else {
@@ -89,7 +90,7 @@ impl SearchCheckpoint {
     pub fn numbers_remaining(&self) -> u64 {
         if let (Ok(current), Ok(end)) = (
             self.current_number.to_string().parse::<u64>(),
-            self.end_range.to_string().parse::<u64>()
+            self.end_range.to_string().parse::<u64>(),
         ) {
             if end > current {
                 end - current

@@ -18,7 +18,7 @@ pub struct RecordHuntCheckpoint {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GeneratorState {
-    pub current_value: String,  // BigUint as String for serialization
+    pub current_value: String, // BigUint as String for serialization
     pub digits: usize,
     pub mode: GeneratorMode,
 }
@@ -99,9 +99,15 @@ impl RecordHuntCheckpoint {
         println!("  Timestamp: {}", self.timestamp);
         println!("  Numbers tested: {}", self.statistics.numbers_tested);
         println!("  Seeds tested: {}", self.statistics.seeds_tested);
-        println!("  Best iterations: {}", self.statistics.best_iterations_found);
+        println!(
+            "  Best iterations: {}",
+            self.statistics.best_iterations_found
+        );
         println!("  Best digits: {}", self.statistics.best_digits_found);
-        println!("  Candidates (200+): {}", self.statistics.candidates_above_200.len());
+        println!(
+            "  Candidates (200+): {}",
+            self.statistics.candidates_above_200.len()
+        );
         println!("  Current position: {}", self.generator_state.current_value);
         println!("  Cache file: {}", self.thread_cache_file);
     }
@@ -116,7 +122,7 @@ mod tests {
     #[test]
     fn test_checkpoint_save_load() {
         let temp_file = "test_checkpoint_temp.json";
-        
+
         let stats = HuntStatistics {
             numbers_tested: 50000,
             seeds_tested: 25000,
@@ -127,7 +133,7 @@ mod tests {
             start_time: Instant::now(),
             candidates_above_200: vec![],
         };
-        
+
         let config = CheckpointConfig {
             min_digits: 23,
             target_iterations: 289,
@@ -136,7 +142,7 @@ mod tests {
             cache_size: 1000000,
             checkpoint_interval: 100000,
         };
-        
+
         let checkpoint = RecordHuntCheckpoint::new(
             &BigUint::from(123456789u64),
             23,
@@ -145,17 +151,17 @@ mod tests {
             "cache.json",
             config,
         );
-        
+
         // Save
         checkpoint.save(Path::new(temp_file)).unwrap();
-        
+
         // Load
         let loaded = RecordHuntCheckpoint::load(Path::new(temp_file)).unwrap();
-        
+
         assert_eq!(loaded.statistics.numbers_tested, 50000);
         assert_eq!(loaded.statistics.seeds_tested, 25000);
         assert_eq!(loaded.generator_state.digits, 23);
-        
+
         // Cleanup
         std::fs::remove_file(temp_file).ok();
     }
@@ -172,7 +178,7 @@ mod tests {
             start_time: Instant::now(),
             candidates_above_200: vec![],
         };
-        
+
         let config = CheckpointConfig {
             min_digits: 20,
             target_iterations: 200,
@@ -181,7 +187,7 @@ mod tests {
             cache_size: 10000,
             checkpoint_interval: 10000,
         };
-        
+
         let position = BigUint::from(99999999999999999999u128);
         let checkpoint = RecordHuntCheckpoint::new(
             &position,
@@ -191,7 +197,7 @@ mod tests {
             "cache.json",
             config,
         );
-        
+
         let loaded_position = checkpoint.get_current_position().unwrap();
         assert_eq!(loaded_position, position);
     }

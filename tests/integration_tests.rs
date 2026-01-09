@@ -38,10 +38,10 @@ fn test_search_range_finds_multiple_lychrel() {
     };
 
     let results = search_range(config);
-    
+
     assert_eq!(results.total_tested, 11);
     assert!(results.potential_lychrel.len() > 0);
-    
+
     let has_196 = results
         .potential_lychrel
         .iter()
@@ -83,7 +83,7 @@ fn test_parallel_vs_sequential() {
 fn test_large_number() {
     let large = BigUint::parse_bytes(b"12345678901234567890", 10).unwrap();
     let result = lychrel_iteration(large.clone(), 10);
-    
+
     assert_eq!(result.start_number, large);
     assert!(result.iterations <= 10);
 }

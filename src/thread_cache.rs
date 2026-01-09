@@ -7,7 +7,7 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreadInfo {
-    pub seed_number: String,  // Store as String for serialization
+    pub seed_number: String, // Store as String for serialization
     pub iterations_from_seed: u32,
     pub max_iterations_tested: u32,
     pub final_digits: usize,
@@ -32,7 +32,9 @@ pub struct CacheStats {
 }
 
 pub enum DetectionResult {
-    NewThread { path: Vec<BigUint> },
+    NewThread {
+        path: Vec<BigUint>,
+    },
     KnownThread {
         thread_info: ThreadInfo,
         converged_at_iteration: u32,
@@ -52,7 +54,7 @@ impl ThreadCache {
     /// Check if a value exists in the cache
     pub fn check(&mut self, value: &BigUint) -> Option<ThreadInfo> {
         let key = value.to_string();
-        
+
         if let Some(info) = self.known_values.get(&key) {
             self.hits += 1;
             Some(info.clone())
@@ -63,15 +65,42 @@ impl ThreadCache {
     }
 
     /// Add a new thread to the cache
-    /// path: the sequence of numbers in this thread
-    /// info: information about the thread (seed, iterations, etc.)
+    ///
+    /// This function adds a sequence of numbers (thread) to the cache along with
+    /// information about the thread. Only the first N values of the path are cached
+    /// to limit memory usage. If the cache exceeds its maximum size, entries with
+    /// the lowest iteration counts are evicted.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A slice of BigUint representing the sequence of numbers in the thread
+    /// * `info` - ThreadInfo containing metadata about the thread
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lychrel_finder::thread_cache::{ThreadCache, ThreadInfo};
+    /// use num_bigint::BigUint;
+    ///
+    /// let mut cache = ThreadCache::new(1000);
+    /// let path = vec![BigUint::from(887u32), BigUint::from(1675u32)];
+    /// let info = ThreadInfo {
+    ///     seed_number: "196".to_string(),
+    ///     iterations_from_seed: 0,
+    ///     max_iterations_tested: 100,
+    ///     final_digits: 50,
+    ///     reached_palindrome: false,
+    ///     palindrome_at_iteration: None,
+    /// };
+    /// cache.add_thread(&path, info);
+    /// ```
     pub fn add_thread(&mut self, path: &[BigUint], info: ThreadInfo) {
         // Only cache the first N values of the path (e.g., first 100)
         let cache_limit = 100.min(path.len());
-        
+
         for (idx, number) in path.iter().take(cache_limit).enumerate() {
             let key = number.to_string();
-            
+
             // Create modified info for this specific position in the thread
             let position_info = ThreadInfo {
                 seed_number: info.seed_number.clone(),
@@ -81,10 +110,10 @@ impl ThreadCache {
                 reached_palindrome: info.reached_palindrome,
                 palindrome_at_iteration: info.palindrome_at_iteration,
             };
-            
+
             self.known_values.insert(key, position_info);
         }
-        
+
         // Evict if needed
         self.evict_if_needed();
     }
@@ -102,7 +131,7 @@ impl ThreadCache {
             // Find entries with lowest max_iterations_tested
             let mut entries: Vec<_> = self.known_values.iter().collect();
             entries.sort_by_key(|(_, info)| info.max_iterations_tested);
-            
+
             // Remove the bottom 10% to avoid frequent evictions
             let to_remove = (self.max_cache_size / 10).max(1);
             let keys_to_remove: Vec<String> = entries
@@ -110,7 +139,7 @@ impl ThreadCache {
                 .take(to_remove)
                 .map(|(key, _)| (*key).clone())
                 .collect();
-            
+
             for key in keys_to_remove {
                 self.known_values.remove(&key);
             }
@@ -125,7 +154,7 @@ impl ThreadCache {
         } else {
             0.0
         };
-        
+
         CacheStats {
             entries: self.known_values.len(),
             hits: self.hits,
@@ -166,7 +195,7 @@ impl ThreadCache {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let known_values: HashMap<String, ThreadInfo> = serde_json::from_reader(reader)?;
-        
+
         Ok(ThreadCache {
             known_values,
             max_cache_size: max_size,
@@ -187,7 +216,7 @@ impl ThreadCache {
                 self.known_values.insert(key, info);
             }
         }
-        
+
         self.evict_if_needed();
     }
 
@@ -217,13 +246,13 @@ mod tests {
     #[test]
     fn test_cache_add_and_check() {
         let mut cache = ThreadCache::new(1000);
-        
+
         let path = vec![
             BigUint::from(887u32),
             BigUint::from(1675u32),
             BigUint::from(7436u32),
         ];
-        
+
         let info = ThreadInfo {
             seed_number: "196".to_string(),
             iterations_from_seed: 0,
@@ -232,14 +261,14 @@ mod tests {
             reached_palindrome: false,
             palindrome_at_iteration: None,
         };
-        
+
         cache.add_thread(&path, info);
-        
+
         // Check should find the first value
         let result = cache.check(&BigUint::from(887u32));
         assert!(result.is_some());
         assert_eq!(cache.hits, 1);
-        
+
         // Check unknown value
         let result = cache.check(&BigUint::from(999u32));
         assert!(result.is_none());
@@ -258,7 +287,7 @@ mod tests {
     #[test]
     fn test_cache_eviction() {
         let mut cache = ThreadCache::new(10);
-        
+
         // Add more entries than capacity
         for i in 0..20 {
             let path = vec![BigUint::from(i * 1000u32)];
@@ -272,7 +301,7 @@ mod tests {
             };
             cache.add_thread(&path, info);
         }
-        
+
         // Cache should have evicted entries to stay under max_size
         assert!(cache.len() <= 10);
     }
@@ -280,7 +309,7 @@ mod tests {
     #[test]
     fn test_hit_rate() {
         let mut cache = ThreadCache::new(1000);
-        
+
         let path = vec![BigUint::from(887u32)];
         let info = ThreadInfo {
             seed_number: "196".to_string(),
@@ -291,14 +320,14 @@ mod tests {
             palindrome_at_iteration: None,
         };
         cache.add_thread(&path, info);
-        
+
         // 2 hits, 3 misses = 40% hit rate
         cache.check(&BigUint::from(887u32));
         cache.check(&BigUint::from(887u32));
         cache.check(&BigUint::from(999u32));
         cache.check(&BigUint::from(998u32));
         cache.check(&BigUint::from(997u32));
-        
+
         assert_eq!(cache.hits, 2);
         assert_eq!(cache.misses, 3);
         assert!((cache.hit_rate() - 0.4).abs() < 0.01);

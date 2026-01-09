@@ -27,7 +27,7 @@ impl Checkpoint {
         elapsed_secs: f64,
     ) -> Self {
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        
+
         Checkpoint {
             start_number,
             current_number,

@@ -87,10 +87,7 @@ where
     }
 }
 
-pub fn verify_lychrel_resumable<F>(
-    config: VerifyConfig,
-    mut progress_callback: F,
-) -> VerifyResult
+pub fn verify_lychrel_resumable<F>(config: VerifyConfig, mut progress_callback: F) -> VerifyResult
 where
     F: FnMut(u64, &BigUint, std::time::Duration, bool),
 {
@@ -115,11 +112,23 @@ where
 
     while iteration_count < config.max_iterations {
         let reversed = reverse_number(&current);
+        let previous = current.clone();
+        let reversed_clone = reversed.clone();
         current = current + reversed;
         iteration_count += 1;
 
+        println!(
+            "Iteration {}: {} + {} = {}",
+            iteration_count, previous, reversed_clone, current
+        );
+
         if is_palindrome(&current) {
             progress_callback(iteration_count, &current, start_time.elapsed(), false);
+            println!("\n=== PALINDROME REACHED ===");
+            println!(
+                "Iteration {}: {} + {} = {}",
+                iteration_count, previous, reversed_clone, current
+            );
             return VerifyResult {
                 start_number: config.number.clone(),
                 is_palindrome: true,
@@ -136,7 +145,8 @@ where
             false
         };
 
-        let should_show_progress = iteration_count - last_progress_report >= config.progress_interval;
+        let should_show_progress =
+            iteration_count - last_progress_report >= config.progress_interval;
 
         if should_save_checkpoint {
             if let Some(ref checkpoint_file) = config.checkpoint_file {
@@ -149,7 +159,7 @@ where
                     config.checkpoint_interval,
                     total_elapsed + start_time.elapsed().as_secs_f64(),
                 );
-                
+
                 if let Err(e) = checkpoint.save(checkpoint_file) {
                     eprintln!("Warning: Failed to save checkpoint: {}", e);
                 } else {
@@ -197,13 +207,25 @@ where
 
     while iteration_count < checkpoint.max_iterations {
         let reversed = reverse_number(&current);
+        let previous = current.clone();
+        let reversed_clone = reversed.clone();
         current = current + reversed;
         iteration_count += 1;
 
+        println!(
+            "Iteration {}: {} + {} = {}",
+            iteration_count, previous, reversed_clone, current
+        );
+
         if is_palindrome(&current) {
             progress_callback(iteration_count, &current, start_time.elapsed(), false);
+            println!("\n=== PALINDROME REACHED ===");
+            println!(
+                "Iteration {}: {} + {} = {}",
+                iteration_count, previous, reversed_clone, current
+            );
             let total_duration = std::time::Duration::from_secs_f64(
-                base_elapsed + start_time.elapsed().as_secs_f64()
+                base_elapsed + start_time.elapsed().as_secs_f64(),
             );
             return VerifyResult {
                 start_number: checkpoint.start_number,
@@ -222,7 +244,8 @@ where
             false
         };
 
-        let should_show_progress = iteration_count - last_progress_report >= checkpoint.progress_interval;
+        let should_show_progress =
+            iteration_count - last_progress_report >= checkpoint.progress_interval;
 
         if should_save_checkpoint {
             if let Some(ref file) = checkpoint_file {
@@ -235,7 +258,7 @@ where
                     checkpoint_interval,
                     base_elapsed + start_time.elapsed().as_secs_f64(),
                 );
-                
+
                 if let Err(e) = new_checkpoint.save(file) {
                     eprintln!("Warning: Failed to save checkpoint: {}", e);
                 } else {
@@ -253,9 +276,8 @@ where
     }
 
     progress_callback(iteration_count, &current, start_time.elapsed(), false);
-    let total_duration = std::time::Duration::from_secs_f64(
-        base_elapsed + start_time.elapsed().as_secs_f64()
-    );
+    let total_duration =
+        std::time::Duration::from_secs_f64(base_elapsed + start_time.elapsed().as_secs_f64());
 
     VerifyResult {
         start_number: checkpoint.start_number,
@@ -276,5 +298,10 @@ pub fn resume_from_checkpoint_with_config<F>(
 where
     F: FnMut(u64, &BigUint, std::time::Duration, bool),
 {
-    resume_from_checkpoint(checkpoint, Some(checkpoint_file), Some(checkpoint_interval), progress_callback)
+    resume_from_checkpoint(
+        checkpoint,
+        Some(checkpoint_file),
+        Some(checkpoint_interval),
+        progress_callback,
+    )
 }

@@ -38,6 +38,40 @@ pub fn search_range(config: SearchConfig) -> SearchResults {
     }
 }
 
+/// Search for Lychrel numbers in a range with resumable progress
+///
+/// This function searches for potential Lychrel numbers in a specified range
+/// while providing periodic progress updates through a callback function.
+/// It supports checkpointing to allow resuming the search from where it left off.
+///
+/// # Arguments
+///
+/// * `config` - Search configuration including range, max iterations, and checkpoint settings
+/// * `progress_callback` - Callback function that receives progress updates
+///
+/// # Returns
+///
+/// A `SearchResults` struct containing the numbers tested and potential Lychrel candidates
+///
+/// # Examples
+///
+/// ```
+/// use lychrel_finder::{search_range_resumable, SearchConfig};
+/// use num_bigint::BigUint;
+///
+/// let config = SearchConfig {
+///     start: BigUint::from(1u32),
+///     end: BigUint::from(1000u32),
+///     max_iterations: 100,
+///     parallel: false,
+///     checkpoint_interval: Some(100),
+///     checkpoint_file: Some("checkpoint.json".to_string()),
+/// };
+///
+/// let results = search_range_resumable(config, |tested, current, is_checkpoint| {
+///     println!("Tested: {}/1000, Current: {}", tested, current);
+/// });
+/// ```
 pub fn search_range_resumable<F>(config: SearchConfig, mut progress_callback: F) -> SearchResults
 where
     F: FnMut(u64, &BigUint, bool),
@@ -77,7 +111,7 @@ where
                     config.checkpoint_file.clone(),
                     start_time.elapsed().as_secs_f64(),
                 );
-                
+
                 if let Err(e) = checkpoint.save(file) {
                     eprintln!("Warning: Failed to save checkpoint: {}", e);
                 } else {
@@ -105,7 +139,7 @@ where
     let start_time = Instant::now();
     let mut results = SearchResults::new();
     results.total_tested = checkpoint.numbers_tested;
-    
+
     // Recreate potential_lychrel from saved numbers
     for num in &checkpoint.potential_lychrel_found {
         let result = IterationResult {
@@ -151,7 +185,7 @@ where
                     checkpoint.checkpoint_file.clone(),
                     checkpoint.elapsed_secs + start_time.elapsed().as_secs_f64(),
                 );
-                
+
                 if let Err(e) = new_checkpoint.save(file) {
                     eprintln!("Warning: Failed to save checkpoint: {}", e);
                 } else {
@@ -192,7 +226,7 @@ fn search_sequential(config: SearchConfig) -> SearchResults {
 fn search_parallel(config: SearchConfig) -> SearchResults {
     let start_u64 = config.start.to_string().parse::<u64>().unwrap_or(0);
     let end_u64 = config.end.to_string().parse::<u64>().unwrap_or(start_u64);
-    
+
     let potential_lychrel = Arc::new(Mutex::new(Vec::new()));
     let palindromes = Arc::new(Mutex::new(Vec::new()));
 
@@ -218,10 +252,7 @@ fn search_parallel(config: SearchConfig) -> SearchResults {
             .unwrap()
             .into_inner()
             .unwrap(),
-        palindromes_found: Arc::try_unwrap(palindromes)
-            .unwrap()
-            .into_inner()
-            .unwrap(),
+        palindromes_found: Arc::try_unwrap(palindromes).unwrap().into_inner().unwrap(),
     }
 }
 
@@ -257,6 +288,9 @@ mod tests {
 
         let results = search_range(config);
         assert_eq!(results.potential_lychrel.len(), 1);
-        assert_eq!(results.potential_lychrel[0].start_number, BigUint::from(196u32));
+        assert_eq!(
+            results.potential_lychrel[0].start_number,
+            BigUint::from(196u32)
+        );
     }
 }
