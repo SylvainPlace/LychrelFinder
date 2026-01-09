@@ -1,7 +1,5 @@
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
 use crate::record_hunt::{HuntStatistics, RecordCandidate};
@@ -77,17 +75,11 @@ impl RecordHuntCheckpoint {
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let file = File::create(path)?;
-        let writer = BufWriter::new(file);
-        serde_json::to_writer_pretty(writer, self)?;
-        Ok(())
+        crate::io_utils::save_to_file(self, path)
     }
 
     pub fn load(path: &Path) -> std::io::Result<Self> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let checkpoint = serde_json::from_reader(reader)?;
-        Ok(checkpoint)
+        crate::io_utils::load_from_file(path)
     }
 
     pub fn get_current_position(&self) -> Result<BigUint, num_bigint::ParseBigIntError> {
@@ -136,6 +128,7 @@ mod tests {
 
         let config = CheckpointConfig {
             min_digits: 23,
+            max_digits: None,
             target_iterations: 289,
             max_iterations: 300,
             target_final_digits: 142,
@@ -181,6 +174,7 @@ mod tests {
 
         let config = CheckpointConfig {
             min_digits: 20,
+            max_digits: None,
             target_iterations: 200,
             max_iterations: 250,
             target_final_digits: 100,

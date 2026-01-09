@@ -1,9 +1,6 @@
 use crate::lychrel::IterationResult;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchCheckpoint {
@@ -51,23 +48,12 @@ impl SearchCheckpoint {
         }
     }
 
-    pub fn save(&self, filepath: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let json = serde_json::to_string_pretty(self)?;
-        let mut file = File::create(filepath)?;
-        file.write_all(json.as_bytes())?;
-        Ok(())
+    pub fn save(&self, filepath: &str) -> std::io::Result<()> {
+        crate::io_utils::save_to_file_str(self, filepath)
     }
 
-    pub fn load(filepath: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        if !Path::new(filepath).exists() {
-            return Err("Checkpoint file not found".into());
-        }
-
-        let mut file = File::open(filepath)?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-        let checkpoint: SearchCheckpoint = serde_json::from_str(&contents)?;
-        Ok(checkpoint)
+    pub fn load(filepath: &str) -> std::io::Result<Self> {
+        crate::io_utils::load_from_file_str(filepath)
     }
 
     pub fn progress_percentage(&self) -> f64 {

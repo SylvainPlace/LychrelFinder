@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{BufReader, Write};
+use std::io::Write;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -80,17 +80,12 @@ pub struct HuntResults {
 impl HuntConfig {
     /// Load configuration from a JSON file
     pub fn load_from_file(path: &Path) -> std::io::Result<Self> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let config = serde_json::from_reader(reader)?;
-        Ok(config)
+        crate::io_utils::load_from_file(path)
     }
 
     /// Save configuration to a JSON file
     pub fn save_to_file(&self, path: &Path) -> std::io::Result<()> {
-        let file = File::create(path)?;
-        serde_json::to_writer_pretty(file, self)?;
-        Ok(())
+        crate::io_utils::save_to_file(self, path)
     }
 
     /// Create a default configuration

@@ -1,4 +1,5 @@
 pub mod checkpoint;
+pub mod io_utils;
 pub mod lychrel;
 pub mod record_checkpoint;
 pub mod record_hunt;

@@ -1,8 +1,6 @@
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,17 +182,12 @@ impl ThreadCache {
 
     /// Save cache to file
     pub fn save_to_file(&self, path: &Path) -> std::io::Result<()> {
-        let file = File::create(path)?;
-        let writer = BufWriter::new(file);
-        serde_json::to_writer_pretty(writer, &self.known_values)?;
-        Ok(())
+        crate::io_utils::save_to_file(&self.known_values, path)
     }
 
     /// Load cache from file
     pub fn load_from_file(path: &Path, max_size: usize) -> std::io::Result<Self> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let known_values: HashMap<String, ThreadInfo> = serde_json::from_reader(reader)?;
+        let known_values: HashMap<String, ThreadInfo> = crate::io_utils::load_from_file(path)?;
 
         Ok(ThreadCache {
             known_values,
