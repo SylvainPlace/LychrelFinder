@@ -87,6 +87,9 @@ enum Commands {
         #[arg(long, help = "Minimum number of digits (overrides config file)")]
         min_digits: Option<usize>,
 
+        #[arg(long, help = "Maximum number of digits - search all numbers up to this size (overrides config file)")]
+        max_digits: Option<usize>,
+
         #[arg(long, help = "Target minimum iterations (overrides config file)")]
         target_iterations: Option<u32>,
 
@@ -160,6 +163,7 @@ fn main() {
         Commands::HuntRecord {
             config,
             min_digits,
+            max_digits,
             target_iterations,
             max_iterations,
             target_final_digits,
@@ -172,6 +176,7 @@ fn main() {
             hunt_records_from_config(
                 config,
                 min_digits,
+                max_digits,
                 target_iterations,
                 max_iterations,
                 target_final_digits,
@@ -810,6 +815,11 @@ fn init_config_file(output: &str) {
             println!("✓ Default configuration file created: {}", output);
             println!("\nConfiguration:");
             println!("  Min digits:          {}", config.min_digits);
+            if let Some(max_digits) = config.max_digits {
+                println!("  Max digits:          {}", max_digits);
+            } else {
+                println!("  Max digits:          not set");
+            }
             println!("  Target iterations:   {} - {}", config.target_iterations, config.max_iterations);
             println!("  Target final digits: {}", config.target_final_digits);
             println!("  Cache size:          {}", config.cache_size);
@@ -830,6 +840,7 @@ fn init_config_file(output: &str) {
 fn hunt_records_from_config(
     config_file: Option<String>,
     min_digits_override: Option<usize>,
+    max_digits_override: Option<usize>,
     target_iterations_override: Option<u32>,
     max_iterations_override: Option<u32>,
     target_final_digits_override: Option<usize>,
@@ -859,6 +870,9 @@ fn hunt_records_from_config(
     // Apply CLI overrides
     if let Some(v) = min_digits_override {
         config.min_digits = v;
+    }
+    if let Some(v) = max_digits_override {
+        config.max_digits = Some(v);
     }
     if let Some(v) = target_iterations_override {
         config.target_iterations = v;
@@ -894,6 +908,11 @@ fn hunt_records_with_config(config: HuntConfig) {
     println!("═══════════════════════════════════════════");
     println!("Configuration:");
     println!("  Min digits:          {}", config.min_digits);
+    if let Some(max_digits) = config.max_digits {
+        println!("  Max digits:          {} (testing all numbers with {} to {} digits)", max_digits, config.min_digits, max_digits);
+    } else {
+        println!("  Max digits:          not set (testing only {}-digit numbers)", config.min_digits);
+    }
     println!("  Target iterations:   {} - {}", config.target_iterations, config.max_iterations);
     println!("  Target final digits: {}", config.target_final_digits);
     println!("  Cache size:          {}", config.cache_size);
@@ -934,18 +953,18 @@ fn hunt_records_with_config(config: HuntConfig) {
     println!("═══════════════════════════════════════════\n");
     
     if !results.records.is_empty() {
-        println!("🎉 {} RECORD(S) FOUND!", results.records.len());
+        println!("🎉 {} RECORD PALINDROME(S) FOUND!", results.records.len());
         for record in &results.records {
-            println!("  - Number: {} ({} iterations, {} final digits)",
+            println!("  - Number: {} ({} iterations to palindrome, {} final digits)",
                      record.number, record.iterations, record.final_digits);
         }
         println!();
     }
     
     if !results.candidates_above_200.is_empty() && results.candidates_above_200.len() <= 20 {
-        println!("📋 Promising candidates (200+ iterations):");
+        println!("📋 Promising palindromes (200+ iterations):");
         for candidate in &results.candidates_above_200 {
-            println!("  - {} ({} iter, {} digits)",
+            println!("  - {} ({} iter to palindrome, {} digits)",
                      candidate.number, candidate.iterations, candidate.final_digits);
         }
         println!();

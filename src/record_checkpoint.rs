@@ -37,6 +37,8 @@ pub struct CheckpointStatistics {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CheckpointConfig {
     pub min_digits: usize,
+    #[serde(default)]
+    pub max_digits: Option<usize>,
     pub target_iterations: u32,
     pub max_iterations: u32,
     pub target_final_digits: usize,
