@@ -31,6 +31,50 @@ fn is_palindrome(n: &BigUint) -> bool {
     s == reversed
 }
 
+/// Verify if a number is a Lychrel number with resumable progress and checkpointing
+///
+/// This function performs extensive testing of a number using the reverse-add iteration
+/// algorithm. It supports periodic progress updates and automatic checkpoint saving,
+/// allowing long-running verification to be resumed if interrupted.
+///
+/// # Arguments
+///
+/// * `config` - VerifyConfig containing:
+///   - `number`: The number to verify
+///   - `max_iterations`: Maximum iterations to perform
+///   - `progress_interval`: How often to show progress
+///   - `checkpoint_interval`: How often to save checkpoints
+///   - `checkpoint_file`: Optional checkpoint file path
+/// * `progress_callback` - Callback function that receives:
+///   - Current iteration count
+///   - Current number value
+///   - Time elapsed
+///   - Whether this is a checkpoint save
+///
+/// # Returns
+///
+/// A `VerifyResult` containing test results
+///
+/// # Examples
+///
+/// ```
+/// use lychrel_finder::verify::{verify_lychrel_resumable, VerifyConfig};
+/// use num_bigint::BigUint;
+///
+/// let config = VerifyConfig {
+///     number: BigUint::from(196u32),
+///     max_iterations: 1000000,
+///     progress_interval: 10000,
+///     checkpoint_interval: Some(10000),
+///     checkpoint_file: Some("checkpoint_196.json".to_string()),
+/// };
+///
+/// let result = verify_lychrel_resumable(config, |iter, current, elapsed, is_checkpoint| {
+///     if is_checkpoint {
+///         println!("Checkpoint: {} iterations", iter);
+///     }
+/// });
+/// ```
 pub fn verify_lychrel_resumable<F>(config: VerifyConfig, mut progress_callback: F) -> VerifyResult
 where
     F: FnMut(u64, &BigUint, std::time::Duration, bool),
@@ -58,7 +102,7 @@ where
         let reversed = reverse_number(&current);
         let previous = current.clone();
         let reversed_clone = reversed.clone();
-        current = current + reversed;
+        current += reversed;
         iteration_count += 1;
 
         println!(
@@ -132,6 +176,39 @@ where
     }
 }
 
+/// Resume verification from a saved checkpoint
+///
+/// This function resumes an interrupted verification process from a checkpoint,
+/// continuing from where it left off. It uses the checkpoint's saved state
+/// to continue iterations without re-computing previous work.
+///
+/// # Arguments
+///
+/// * `checkpoint` - The loaded checkpoint containing saved state
+/// * `checkpoint_file` - Optional file path for saving new checkpoints
+/// * `checkpoint_interval` - Optional checkpoint saving frequency
+/// * `progress_callback` - Callback for progress updates
+///
+/// # Returns
+///
+/// A `VerifyResult` containing the final test results
+///
+/// # Examples
+///
+/// ```
+/// use lychrel_finder::checkpoint::Checkpoint;
+/// use lychrel_finder::verify::resume_from_checkpoint;
+///
+/// let checkpoint = Checkpoint::load("checkpoint_196.json").unwrap();
+/// let result = resume_from_checkpoint(
+///     checkpoint,
+///     Some("checkpoint_196.json".to_string()),
+///     Some(10000),
+///     |iter, current, elapsed, is_checkpoint| {
+///         println!("Progress: {} iterations", iter);
+///     },
+/// );
+/// ```
 pub fn resume_from_checkpoint<F>(
     checkpoint: Checkpoint,
     checkpoint_file: Option<String>,
@@ -153,7 +230,7 @@ where
         let reversed = reverse_number(&current);
         let previous = current.clone();
         let reversed_clone = reversed.clone();
-        current = current + reversed;
+        current += reversed;
         iteration_count += 1;
 
         println!(
@@ -233,6 +310,21 @@ where
     }
 }
 
+/// Resume verification from a checkpoint with explicit configuration
+///
+/// Convenience wrapper around `resume_from_checkpoint` that requires
+/// checkpoint_file and checkpoint_interval to be specified explicitly.
+///
+/// # Arguments
+///
+/// * `checkpoint` - The loaded checkpoint containing saved state
+/// * `checkpoint_file` - File path for saving new checkpoints (required)
+/// * `checkpoint_interval` - Checkpoint saving frequency (required)
+/// * `progress_callback` - Callback for progress updates
+///
+/// # Returns
+///
+/// A `VerifyResult` containing the final test results
 pub fn resume_from_checkpoint_with_config<F>(
     checkpoint: Checkpoint,
     checkpoint_file: String,

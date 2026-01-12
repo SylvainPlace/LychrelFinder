@@ -30,6 +30,48 @@ impl SearchResults {
     }
 }
 
+/// Search for Lychrel numbers in a specified range
+///
+/// This function performs a search for potential Lychrel numbers in the given range,
+/// using either parallel or sequential processing based on the configuration.
+/// Parallel processing uses Rayon for automatic CPU core utilization,
+/// while sequential processing supports checkpointing.
+///
+/// # Arguments
+///
+/// * `config` - SearchConfig containing:
+///   - `start`: Starting number of the range
+///   - `end`: Ending number of the range
+///   - `max_iterations`: Maximum iterations to test each number
+///   - `parallel`: Whether to use parallel processing
+///   - `checkpoint_interval`: Optional checkpoint frequency (sequential only)
+///   - `checkpoint_file`: Optional checkpoint file path (sequential only)
+///
+/// # Returns
+///
+/// A `SearchResults` struct containing:
+/// - Total numbers tested
+/// - Vector of potential Lychrel numbers found
+/// - Vector of numbers that reached palindromes
+///
+/// # Examples
+///
+/// ```
+/// use lychrel_finder::{search_range, SearchConfig};
+/// use num_bigint::BigUint;
+///
+/// let config = SearchConfig {
+///     start: BigUint::from(1u32),
+///     end: BigUint::from(100u32),
+///     max_iterations: 1000,
+///     parallel: true,
+///     checkpoint_interval: None,
+///     checkpoint_file: None,
+/// };
+///
+/// let results = search_range(config);
+/// println!("Found {} potential Lychrel numbers", results.potential_lychrel.len());
+/// ```
 pub fn search_range(config: SearchConfig) -> SearchResults {
     if config.parallel {
         search_parallel(config)

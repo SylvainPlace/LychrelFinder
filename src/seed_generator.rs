@@ -19,6 +19,31 @@ pub struct SeedGenerator {
 }
 
 impl SeedGenerator {
+    /// Create a new seed generator
+    ///
+    /// Generates numbers within a specified digit range. The generator filters
+    /// candidates to only return potential seed numbers (primary numbers in their
+    /// convergence families), skipping approximately 50% of numbers.
+    ///
+    /// # Arguments
+    ///
+    /// * `digits` - Number of digits for generated numbers
+    /// * `mode` - Generation strategy (Sequential, SmartRandom, or PatternBased)
+    ///
+    /// # Returns
+    ///
+    /// A new SeedGenerator instance
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lychrel_finder::seed_generator::{SeedGenerator, GeneratorMode};
+    ///
+    /// let mut gen = SeedGenerator::new(23, GeneratorMode::Sequential);
+    /// while let Some(number) = gen.next() {
+    ///     println!("Testing: {}", number);
+    /// }
+    /// ```
     pub fn new(digits: usize, mode: GeneratorMode) -> Self {
         let min = BigUint::from(10u32).pow(digits as u32 - 1);
         let max = BigUint::from(10u32).pow(digits as u32);
@@ -34,6 +59,16 @@ impl SeedGenerator {
     }
 
     /// Create generator with custom starting point (for resuming)
+    ///
+    /// # Arguments
+    ///
+    /// * `digits` - Number of digits for generated numbers
+    /// * `mode` - Generation strategy
+    /// * `current` - Starting number (for resuming from checkpoint)
+    ///
+    /// # Returns
+    ///
+    /// A new SeedGenerator instance starting from the specified position
     pub fn from_checkpoint(digits: usize, mode: GeneratorMode, current: BigUint) -> Self {
         let max = BigUint::from(10u32).pow(digits as u32);
 
@@ -48,6 +83,29 @@ impl SeedGenerator {
     }
 
     /// Check if a number is a potential seed (primary number in its convergence family)
+    ///
+    /// This function uses the reverse-add property: if a number N converges to the same
+    /// sequence as number M (where M = reverse(N)), then only the smaller number needs
+    /// to be tested. This filter reduces the search space by ~50%.
+    ///
+    /// # Arguments
+    ///
+    /// * `n` - The number to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the number is a potential seed, `false` if it should be skipped
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lychrel_finder::seed_generator::{SeedGenerator, GeneratorMode};
+    /// use num_bigint::BigUint;
+    ///
+    /// let gen = SeedGenerator::new(5, GeneratorMode::Sequential);
+    /// assert!(gen.is_potential_seed(&BigUint::from(12345u32)));
+    /// assert!(!gen.is_potential_seed(&BigUint::from(54321u32)));
+    /// ```
     pub fn is_potential_seed(&self, n: &BigUint) -> bool {
         let reversed = reverse_number(n);
 
@@ -62,6 +120,14 @@ impl SeedGenerator {
         true
     }
 
+    /// Get generator statistics
+    ///
+    /// # Returns
+    ///
+    /// A GeneratorStats struct containing:
+    /// - `generated_count`: Number of potential seeds generated
+    /// - `skip_count`: Number of candidates skipped
+    /// - `skip_rate`: Percentage of candidates skipped (typically ~50%)
     pub fn get_stats(&self) -> GeneratorStats {
         GeneratorStats {
             generated_count: self.generated_count,
@@ -74,6 +140,11 @@ impl SeedGenerator {
         }
     }
 
+    /// Get current position in the sequence
+    ///
+    /// # Returns
+    ///
+    /// The current number (next number to be generated)
     pub fn current_position(&self) -> BigUint {
         self.current.clone()
     }

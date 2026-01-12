@@ -77,19 +77,8 @@ pub struct HuntResults {
     pub elapsed_time: Duration,
 }
 
-impl HuntConfig {
-    /// Load configuration from a JSON file
-    pub fn load_from_file(path: &Path) -> std::io::Result<Self> {
-        crate::io_utils::load_from_file(path)
-    }
-
-    /// Save configuration to a JSON file
-    pub fn save_to_file(&self, path: &Path) -> std::io::Result<()> {
-        crate::io_utils::save_to_file(self, path)
-    }
-
-    /// Create a default configuration
-    pub fn default() -> Self {
+impl Default for HuntConfig {
+    fn default() -> Self {
         HuntConfig {
             min_digits: 23,
             max_digits: None,
@@ -102,6 +91,18 @@ impl HuntConfig {
             checkpoint_file: "hunt_checkpoint.json".to_string(),
             warmup: false,
         }
+    }
+}
+
+impl HuntConfig {
+    /// Load configuration from a JSON file
+    pub fn load_from_file(path: &Path) -> std::io::Result<Self> {
+        crate::io_utils::load_from_file(path)
+    }
+
+    /// Save configuration to a JSON file
+    pub fn save_to_file(&self, path: &Path) -> std::io::Result<()> {
+        crate::io_utils::save_to_file(self, path)
     }
 }
 
@@ -248,12 +249,16 @@ impl RecordHunter {
                 self.test_candidate(candidate);
 
                 // Checkpoint periodically
-                if self.stats.numbers_tested % self.checkpoint_interval == 0 {
+                if self
+                    .stats
+                    .numbers_tested
+                    .is_multiple_of(self.checkpoint_interval)
+                {
                     self.save_checkpoint();
                 }
 
                 // Display stats periodically
-                if self.stats.numbers_tested % 10000 == 0 {
+                if self.stats.numbers_tested.is_multiple_of(10000) {
                     self.print_stats();
                 }
             } else {

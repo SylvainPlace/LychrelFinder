@@ -78,11 +78,7 @@ impl SearchCheckpoint {
             self.current_number.to_string().parse::<u64>(),
             self.end_range.to_string().parse::<u64>(),
         ) {
-            if end > current {
-                end - current
-            } else {
-                0
-            }
+            end.saturating_sub(current)
         } else {
             0
         }
