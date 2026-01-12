@@ -40,7 +40,7 @@ fn test_search_range_finds_multiple_lychrel() {
     let results = search_range(config);
 
     assert_eq!(results.total_tested, 11);
-    assert!(results.potential_lychrel.len() > 0);
+    assert!(!results.potential_lychrel.is_empty());
 
     let has_196 = results
         .potential_lychrel

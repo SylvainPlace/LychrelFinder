@@ -16,38 +16,94 @@ pub struct SearchCheckpoint {
     pub timestamp: String,
 }
 
-impl SearchCheckpoint {
-    pub fn new(
-        start_range: BigUint,
-        end_range: BigUint,
-        current_number: BigUint,
-        max_iterations: u32,
-        numbers_tested: u64,
-        potential_lychrel: &[IterationResult],
-        checkpoint_interval: Option<u64>,
-        checkpoint_file: Option<String>,
-        elapsed_secs: f64,
-    ) -> Self {
+#[derive(Debug, Clone, Default)]
+pub struct SearchCheckpointBuilder {
+    pub start_range: Option<BigUint>,
+    pub end_range: Option<BigUint>,
+    pub current_number: Option<BigUint>,
+    pub max_iterations: Option<u32>,
+    pub numbers_tested: Option<u64>,
+    pub potential_lychrel: Option<Vec<IterationResult>>,
+    pub checkpoint_interval: Option<u64>,
+    pub checkpoint_file: Option<String>,
+    pub elapsed_secs: Option<f64>,
+}
+
+impl SearchCheckpointBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn start_range(mut self, value: BigUint) -> Self {
+        self.start_range = Some(value);
+        self
+    }
+
+    pub fn end_range(mut self, value: BigUint) -> Self {
+        self.end_range = Some(value);
+        self
+    }
+
+    pub fn current_number(mut self, value: BigUint) -> Self {
+        self.current_number = Some(value);
+        self
+    }
+
+    pub fn max_iterations(mut self, value: u32) -> Self {
+        self.max_iterations = Some(value);
+        self
+    }
+
+    pub fn numbers_tested(mut self, value: u64) -> Self {
+        self.numbers_tested = Some(value);
+        self
+    }
+
+    pub fn potential_lychrel(mut self, value: Vec<IterationResult>) -> Self {
+        self.potential_lychrel = Some(value);
+        self
+    }
+
+    pub fn checkpoint_interval(mut self, value: Option<u64>) -> Self {
+        self.checkpoint_interval = value;
+        self
+    }
+
+    pub fn checkpoint_file(mut self, value: Option<String>) -> Self {
+        self.checkpoint_file = value;
+        self
+    }
+
+    pub fn elapsed_secs(mut self, value: f64) -> Self {
+        self.elapsed_secs = Some(value);
+        self
+    }
+
+    pub fn build(self) -> SearchCheckpoint {
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        let potential_lychrel_found = potential_lychrel
+        let potential_lychrel_found = self
+            .potential_lychrel
+            .unwrap_or_default()
             .iter()
             .map(|r| r.start_number.clone())
             .collect();
 
         SearchCheckpoint {
-            start_range,
-            end_range,
-            current_number,
-            max_iterations,
-            numbers_tested,
+            start_range: self.start_range.unwrap_or_default(),
+            end_range: self.end_range.unwrap_or_default(),
+            current_number: self.current_number.unwrap_or_default(),
+            max_iterations: self.max_iterations.unwrap_or_default(),
+            numbers_tested: self.numbers_tested.unwrap_or_default(),
             potential_lychrel_found,
-            checkpoint_interval,
-            checkpoint_file,
-            elapsed_secs,
+            checkpoint_interval: self.checkpoint_interval,
+            checkpoint_file: self.checkpoint_file,
+            elapsed_secs: self.elapsed_secs.unwrap_or_default(),
             timestamp,
         }
     }
+}
 
+impl SearchCheckpoint {
     pub fn save(&self, filepath: &str) -> std::io::Result<()> {
         crate::io_utils::save_to_file_str(self, filepath)
     }

@@ -175,6 +175,87 @@ enum Commands {
     Benchmark,
 }
 
+struct SearchParams {
+    start: u64,
+    end: u64,
+    max_iterations: u32,
+    output_file: Option<String>,
+    parallel: bool,
+    checkpoint_interval: Option<u64>,
+    checkpoint_file: Option<String>,
+    force_restart: bool,
+}
+
+#[allow(clippy::too_many_arguments)]
+impl SearchParams {
+    fn from_args(
+        start: u64,
+        end: u64,
+        max_iterations: u32,
+        output_file: Option<String>,
+        parallel: bool,
+        checkpoint_interval: Option<u64>,
+        checkpoint_file: Option<String>,
+        force_restart: bool,
+    ) -> Self {
+        Self {
+            start,
+            end,
+            max_iterations,
+            output_file,
+            parallel,
+            checkpoint_interval,
+            checkpoint_file,
+            force_restart,
+        }
+    }
+}
+
+struct HuntOverrides {
+    config_file: Option<String>,
+    min_digits: Option<usize>,
+    max_digits: Option<usize>,
+    target_iterations: Option<u32>,
+    max_iterations: Option<u32>,
+    target_final_digits: Option<usize>,
+    cache_size: Option<usize>,
+    warmup: Option<bool>,
+    mode: Option<String>,
+    checkpoint_interval: Option<u64>,
+    checkpoint_file: Option<String>,
+}
+
+#[allow(clippy::too_many_arguments)]
+impl HuntOverrides {
+    fn from_args(
+        config_file: Option<String>,
+        min_digits: Option<usize>,
+        max_digits: Option<usize>,
+        target_iterations: Option<u32>,
+        max_iterations: Option<u32>,
+        target_final_digits: Option<usize>,
+        cache_size: Option<usize>,
+        warmup: Option<bool>,
+        mode: Option<String>,
+        checkpoint_interval: Option<u64>,
+        checkpoint_file: Option<String>,
+    ) -> Self {
+        Self {
+            config_file,
+            min_digits,
+            max_digits,
+            target_iterations,
+            max_iterations,
+            target_final_digits,
+            cache_size,
+            warmup,
+            mode,
+            checkpoint_interval,
+            checkpoint_file,
+        }
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -195,7 +276,7 @@ fn main() {
             checkpoint_file,
             force_restart,
         } => {
-            search_numbers(
+            let params = SearchParams::from_args(
                 start,
                 end,
                 max_iterations,
@@ -205,6 +286,7 @@ fn main() {
                 checkpoint_file,
                 force_restart,
             );
+            search_numbers(params);
         }
         Commands::Verify {
             number,
@@ -239,7 +321,7 @@ fn main() {
             checkpoint_interval,
             checkpoint_file,
         } => {
-            hunt_records_from_config(
+            let overrides = HuntOverrides::from_args(
                 config,
                 min_digits,
                 max_digits,
@@ -252,6 +334,7 @@ fn main() {
                 checkpoint_interval,
                 checkpoint_file,
             );
+            hunt_records_from_config(overrides);
         }
         Commands::InitConfig { output } => {
             init_config_file(output.as_deref().unwrap_or("hunt_config.json"));
@@ -331,9 +414,9 @@ fn verify_number(
 
     // Default checkpoint interval is 10000 if not specified
     let checkpoint_interval = match checkpoint_interval {
-        Some(0) => None, // 0 explicitly disables checkpoints
+        Some(0) => None,
         Some(n) => Some(n),
-        None => Some(10000), // Default: save every 10000 iterations
+        None => Some(10000),
     };
 
     // Check if checkpoint exists and offer to resume
@@ -610,28 +693,18 @@ fn resume_verification(checkpoint_file: &str) {
     println!("========================================");
 }
 
-fn search_numbers(
-    start: u64,
-    end: u64,
-    max_iterations: u32,
-    output_file: Option<String>,
-    parallel: bool,
-    checkpoint_interval: Option<u64>,
-    checkpoint_file: Option<String>,
-    force_restart: bool,
-) {
-    let checkpoint_file =
-        checkpoint_file.unwrap_or_else(|| format!("search_checkpoint_{}_{}.json", start, end));
+fn search_numbers(params: SearchParams) {
+    let checkpoint_file = params
+        .checkpoint_file
+        .unwrap_or_else(|| format!("search_checkpoint_{}_{}.json", params.start, params.end));
 
-    // Default checkpoint interval is 1000 if not specified
-    let checkpoint_interval = match checkpoint_interval {
+    let checkpoint_interval = match params.checkpoint_interval {
         Some(0) => None,
         Some(n) => Some(n),
         None => Some(1000),
     };
 
-    // Check if checkpoint exists and offer to resume
-    if !force_restart && !parallel {
+    if !params.force_restart && !params.parallel {
         if let Ok(existing_checkpoint) = SearchCheckpoint::load(&checkpoint_file) {
             println!("========================================");
             println!("  SEARCH CHECKPOINT FOUND!");
@@ -676,7 +749,7 @@ fn search_numbers(
 
             if input.is_empty() || input == "y" || input == "yes" {
                 println!("\nResuming search from checkpoint...\n");
-                resume_search(&checkpoint_file, output_file);
+                resume_search(&checkpoint_file, params.output_file);
                 return;
             } else {
                 println!("\nDeleting old checkpoint and starting fresh...\n");
@@ -685,25 +758,31 @@ fn search_numbers(
                 }
             }
         }
-    } else if !parallel && std::path::Path::new(&checkpoint_file).exists()
-        && force_restart {
-            println!("Deleting existing checkpoint (--force-restart)...\n");
-            if let Err(e) = std::fs::remove_file(&checkpoint_file) {
-                eprintln!("Warning: Could not delete checkpoint file: {}", e);
-            }
+    } else if !params.parallel
+        && std::path::Path::new(&checkpoint_file).exists()
+        && params.force_restart
+    {
+        println!("Deleting existing checkpoint (--force-restart)...\n");
+        if let Err(e) = std::fs::remove_file(&checkpoint_file) {
+            eprintln!("Warning: Could not delete checkpoint file: {}", e);
         }
+    }
 
-    if parallel && checkpoint_interval.is_some() {
+    if params.parallel && checkpoint_interval.is_some() {
         println!("Warning: Checkpoints are not supported with parallel processing. Disabling checkpoints.\n");
     }
 
-    println!("Searching range: {} to {}", start, end);
-    println!("Max iterations: {}", max_iterations);
+    println!("Searching range: {} to {}", params.start, params.end);
+    println!("Max iterations: {}", params.max_iterations);
     println!(
         "Parallel processing: {}",
-        if parallel { "enabled" } else { "disabled" }
+        if params.parallel {
+            "enabled"
+        } else {
+            "disabled"
+        }
     );
-    if !parallel {
+    if !params.parallel {
         if let Some(interval) = checkpoint_interval {
             println!("Checkpoint interval: every {} numbers", interval);
             println!("Checkpoint file: {}", checkpoint_file);
@@ -714,11 +793,11 @@ fn search_numbers(
     println!();
 
     let start_time = Instant::now();
-    let results = if parallel {
+    let results = if params.parallel {
         let config = SearchConfig {
-            start: BigUint::from(start),
-            end: BigUint::from(end),
-            max_iterations,
+            start: BigUint::from(params.start),
+            end: BigUint::from(params.end),
+            max_iterations: params.max_iterations,
             parallel: true,
             checkpoint_interval: None,
             checkpoint_file: None,
@@ -726,15 +805,15 @@ fn search_numbers(
         search_range(config)
     } else {
         let config = SearchConfig {
-            start: BigUint::from(start),
-            end: BigUint::from(end),
-            max_iterations,
+            start: BigUint::from(params.start),
+            end: BigUint::from(params.end),
+            max_iterations: params.max_iterations,
             parallel: false,
             checkpoint_interval,
             checkpoint_file: Some(checkpoint_file.clone()),
         };
 
-        let total_numbers = end - start + 1;
+        let total_numbers = params.end - params.start + 1;
         let mut last_display = 0u64;
         let display_interval = 100;
 
@@ -761,12 +840,12 @@ fn search_numbers(
 
     print_search_results(&results, elapsed);
 
-    if let Some(filename) = output_file {
+    if let Some(filename) = params.output_file {
         save_results_to_file(&results, &filename);
     }
 
     // Clean up checkpoint file on successful completion
-    if !parallel && std::path::Path::new(&checkpoint_file).exists() {
+    if !params.parallel && std::path::Path::new(&checkpoint_file).exists() {
         if let Err(e) = std::fs::remove_file(&checkpoint_file) {
             eprintln!("Warning: Could not delete checkpoint file: {}", e);
         }
@@ -973,21 +1052,9 @@ fn init_config_file(output: &str) {
     }
 }
 
-fn hunt_records_from_config(
-    config_file: Option<String>,
-    min_digits_override: Option<usize>,
-    max_digits_override: Option<usize>,
-    target_iterations_override: Option<u32>,
-    max_iterations_override: Option<u32>,
-    target_final_digits_override: Option<usize>,
-    cache_size_override: Option<usize>,
-    warmup_override: Option<bool>,
-    mode_override: Option<String>,
-    checkpoint_interval_override: Option<u64>,
-    checkpoint_file_override: Option<String>,
-) {
+fn hunt_records_from_config(overrides: HuntOverrides) {
     // Load config from file or use defaults
-    let mut config = if let Some(config_path) = config_file {
+    let mut config = if let Some(config_path) = overrides.config_file {
         match HuntConfig::load_from_file(std::path::Path::new(&config_path)) {
             Ok(c) => {
                 println!("✓ Loaded configuration from: {}\n", config_path);
@@ -1004,34 +1071,34 @@ fn hunt_records_from_config(
     };
 
     // Apply CLI overrides
-    if let Some(v) = min_digits_override {
+    if let Some(v) = overrides.min_digits {
         config.min_digits = v;
     }
-    if let Some(v) = max_digits_override {
+    if let Some(v) = overrides.max_digits {
         config.max_digits = Some(v);
     }
-    if let Some(v) = target_iterations_override {
+    if let Some(v) = overrides.target_iterations {
         config.target_iterations = v;
     }
-    if let Some(v) = max_iterations_override {
+    if let Some(v) = overrides.max_iterations {
         config.max_iterations = v;
     }
-    if let Some(v) = target_final_digits_override {
+    if let Some(v) = overrides.target_final_digits {
         config.target_final_digits = v;
     }
-    if let Some(v) = cache_size_override {
+    if let Some(v) = overrides.cache_size {
         config.cache_size = v;
     }
-    if let Some(v) = warmup_override {
+    if let Some(v) = overrides.warmup {
         config.warmup = v;
     }
-    if let Some(v) = mode_override {
+    if let Some(v) = overrides.mode {
         config.generator_mode = parse_mode(&v);
     }
-    if let Some(v) = checkpoint_interval_override {
+    if let Some(v) = overrides.checkpoint_interval {
         config.checkpoint_interval = v;
     }
-    if let Some(v) = checkpoint_file_override {
+    if let Some(v) = overrides.checkpoint_file {
         config.checkpoint_file = v;
     }
 
@@ -1039,9 +1106,9 @@ fn hunt_records_from_config(
 }
 
 fn hunt_records_with_config(config: HuntConfig) {
-    println!("🔍 ═══════════════════════════════════════════");
+    println!("🔍 ═══════════════════════════════════════");
     println!("   LYCHREL RECORD HUNT");
-    println!("═══════════════════════════════════════════");
+    println!("═════════════════════════════════════════");
     println!("Configuration:");
     println!("  Min digits:          {}", config.min_digits);
     if let Some(max_digits) = config.max_digits {
@@ -1068,7 +1135,7 @@ fn hunt_records_with_config(config: HuntConfig) {
     );
     println!("  Checkpoint file:     {}", config.checkpoint_file);
     println!("  Warmup:              {}", config.warmup);
-    println!("═══════════════════════════════════════════\n");
+    println!("═════════════════════════════════════════\n");
 
     let warmup = config.warmup;
 
@@ -1085,7 +1152,7 @@ fn hunt_records_with_config(config: HuntConfig) {
 
     // Summary
     println!("\n📊 FINAL SUMMARY");
-    println!("═══════════════════════════════════════════");
+    println!("═════════════════════════════════════════");
     println!("Numbers tested:      {}", results.numbers_tested);
     println!("Seeds tested:        {}", results.seeds_tested);
     println!("Records found:       {}", results.records.len());
@@ -1104,7 +1171,7 @@ fn hunt_records_with_config(config: HuntConfig) {
         println!("Average rate:        {:.0} numbers/second", rate);
     }
 
-    println!("═══════════════════════════════════════════\n");
+    println!("═════════════════════════════════════════\n");
 
     if !results.records.is_empty() {
         println!("🎉 {} RECORD PALINDROME(S) FOUND!", results.records.len());

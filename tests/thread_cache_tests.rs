@@ -133,5 +133,5 @@ fn test_long_iteration_cached() {
     let _result = lychrel_iteration_with_cache(BigUint::from(196u32), 100, &mut cache);
 
     // Should be cached because it has 100 iterations (above 50 threshold)
-    assert!(cache.len() > 0, "Long iterations should be cached");
+    assert!(!cache.is_empty(), "Long iterations should be cached");
 }

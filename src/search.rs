@@ -1,5 +1,5 @@
 use crate::lychrel::{lychrel_iteration, IterationResult};
-use crate::search_checkpoint::SearchCheckpoint;
+use crate::search_checkpoint::{SearchCheckpoint, SearchCheckpointBuilder};
 use num_bigint::BigUint;
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
@@ -148,17 +148,17 @@ where
 
         if should_save_checkpoint {
             if let Some(ref file) = config.checkpoint_file {
-                let checkpoint = SearchCheckpoint::new(
-                    config.start.clone(),
-                    config.end.clone(),
-                    current.clone(),
-                    config.max_iterations,
-                    results.total_tested,
-                    &results.potential_lychrel,
-                    config.checkpoint_interval,
-                    config.checkpoint_file.clone(),
-                    start_time.elapsed().as_secs_f64(),
-                );
+                let checkpoint = SearchCheckpointBuilder::new()
+                    .start_range(config.start.clone())
+                    .end_range(config.end.clone())
+                    .current_number(current.clone())
+                    .max_iterations(config.max_iterations)
+                    .numbers_tested(results.total_tested)
+                    .potential_lychrel(results.potential_lychrel.clone())
+                    .checkpoint_interval(config.checkpoint_interval)
+                    .checkpoint_file(config.checkpoint_file.clone())
+                    .elapsed_secs(start_time.elapsed().as_secs_f64())
+                    .build();
 
                 if let Err(e) = checkpoint.save(file) {
                     eprintln!("Warning: Failed to save checkpoint: {}", e);
@@ -222,17 +222,17 @@ where
 
         if should_save_checkpoint {
             if let Some(ref file) = checkpoint.checkpoint_file {
-                let new_checkpoint = SearchCheckpoint::new(
-                    checkpoint.start_range.clone(),
-                    checkpoint.end_range.clone(),
-                    current.clone(),
-                    checkpoint.max_iterations,
-                    results.total_tested,
-                    &results.potential_lychrel,
-                    checkpoint.checkpoint_interval,
-                    checkpoint.checkpoint_file.clone(),
-                    checkpoint.elapsed_secs + start_time.elapsed().as_secs_f64(),
-                );
+                let new_checkpoint = SearchCheckpointBuilder::new()
+                    .start_range(checkpoint.start_range.clone())
+                    .end_range(checkpoint.end_range.clone())
+                    .current_number(current.clone())
+                    .max_iterations(checkpoint.max_iterations)
+                    .numbers_tested(results.total_tested)
+                    .potential_lychrel(results.potential_lychrel.clone())
+                    .checkpoint_interval(checkpoint.checkpoint_interval)
+                    .checkpoint_file(checkpoint.checkpoint_file.clone())
+                    .elapsed_secs(checkpoint.elapsed_secs + start_time.elapsed().as_secs_f64())
+                    .build();
 
                 if let Err(e) = new_checkpoint.save(file) {
                     eprintln!("Warning: Failed to save checkpoint: {}", e);
