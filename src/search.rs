@@ -20,6 +20,12 @@ pub struct SearchResults {
     pub palindromes_found: Vec<IterationResult>,
 }
 
+impl Default for SearchResults {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SearchResults {
     pub fn new() -> Self {
         SearchResults {

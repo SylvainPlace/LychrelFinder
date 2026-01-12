@@ -5,7 +5,6 @@ use lychrel_finder::{
     SearchCheckpoint, SearchConfig, SearchResults, VerifyConfig,
 };
 use num_bigint::BigUint;
-use serde_json;
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
@@ -686,14 +685,13 @@ fn search_numbers(
                 }
             }
         }
-    } else if !parallel && std::path::Path::new(&checkpoint_file).exists() {
-        if force_restart {
+    } else if !parallel && std::path::Path::new(&checkpoint_file).exists()
+        && force_restart {
             println!("Deleting existing checkpoint (--force-restart)...\n");
             if let Err(e) = std::fs::remove_file(&checkpoint_file) {
                 eprintln!("Warning: Could not delete checkpoint file: {}", e);
             }
         }
-    }
 
     if parallel && checkpoint_interval.is_some() {
         println!("Warning: Checkpoints are not supported with parallel processing. Disabling checkpoints.\n");
