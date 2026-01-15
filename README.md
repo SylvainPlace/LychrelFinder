@@ -303,6 +303,18 @@ Note: 1000000 iterations is not definitive proof.
 cargo run --release -- benchmark
 ```
 
+### Advanced Record Hunt Benchmark
+
+For benchmarking the record hunting engine specifically, including cache hit rates:
+
+```bash
+# Default (5 minutes per test)
+cargo run --release --bin record_hunt_benchmark
+
+# Custom duration (e.g., 30 seconds per test)
+cargo run --release --bin record_hunt_benchmark -- --duration 30
+```
+
 ## Available Options
 
 ### `test` Command

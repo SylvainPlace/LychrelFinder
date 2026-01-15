@@ -21,6 +21,10 @@ criterion = "0.5"
 name = "lychrel-finder"
 path = "src/main.rs"
 
+[[bin]]
+name = "record_hunt_benchmark"
+path = "benches/record_hunt_benchmark.rs"
+
 [lib]
 name = "lychrel_finder"
 path = "src/lib.rs"
