@@ -7,7 +7,7 @@ fn test_thread_convergence_196_295() {
     let mut cache = ThreadCache::new(10000);
 
     // Test 196 first (it's a known Lychrel candidate)
-    let result1 = lychrel_iteration_with_cache(BigUint::from(196u32), 100, &mut cache);
+    let result1 = lychrel_iteration_with_cache(BigUint::from(196u32), 100, &mut cache, None);
     assert!(!result1.is_palindrome);
     assert!(result1.is_potential_lychrel);
 
@@ -15,7 +15,7 @@ fn test_thread_convergence_196_295() {
     // 295 + 592 = 887
     // 196 + 691 = 887
     // They should converge at 887!
-    let result2 = lychrel_iteration_with_cache(BigUint::from(295u32), 100, &mut cache);
+    let result2 = lychrel_iteration_with_cache(BigUint::from(295u32), 100, &mut cache, None);
 
     // Should have cache hit for 295 since it converges with 196
     let stats = cache.stats();
@@ -35,7 +35,7 @@ fn test_thread_convergence_multiple() {
     let numbers = vec![196u32, 295, 394, 493, 592, 689, 788];
 
     for &n in &numbers {
-        let _result = lychrel_iteration_with_cache(BigUint::from(n), 50, &mut cache);
+        let _result = lychrel_iteration_with_cache(BigUint::from(n), 50, &mut cache, None);
     }
 
     let stats = cache.stats();
@@ -58,7 +58,7 @@ fn test_cache_speeds_up_computation() {
     // Without cache
     let start = Instant::now();
     for i in 1u32..=1000 {
-        let _ = lychrel_iteration_with_cache(BigUint::from(i), 100, &mut ThreadCache::new(0));
+        let _ = lychrel_iteration_with_cache(BigUint::from(i), 100, &mut ThreadCache::new(0), None);
     }
     let without_cache = start.elapsed();
 
@@ -66,7 +66,7 @@ fn test_cache_speeds_up_computation() {
     let start = Instant::now();
     let mut cache = ThreadCache::new(100000);
     for i in 1u32..=1000 {
-        let _ = lychrel_iteration_with_cache(BigUint::from(i), 100, &mut cache);
+        let _ = lychrel_iteration_with_cache(BigUint::from(i), 100, &mut cache, None);
     }
     let with_cache = start.elapsed();
 
@@ -95,7 +95,7 @@ fn test_cache_save_and_load() {
     // Create and populate cache
     let mut cache = ThreadCache::new(10000);
     for i in 1u32..=100 {
-        let _ = lychrel_iteration_with_cache(BigUint::from(i), 50, &mut cache);
+        let _ = lychrel_iteration_with_cache(BigUint::from(i), 50, &mut cache, None);
     }
 
     let original_entries = cache.len();
@@ -117,7 +117,7 @@ fn test_palindrome_numbers_not_cached() {
     let mut cache = ThreadCache::new(10000);
 
     // Test numbers that quickly become palindromes
-    let result = lychrel_iteration_with_cache(BigUint::from(89u32), 100, &mut cache);
+    let result = lychrel_iteration_with_cache(BigUint::from(89u32), 100, &mut cache, None);
     assert!(result.is_palindrome);
 
     // Low iteration count shouldn't be cached (threshold is 50)
@@ -130,7 +130,7 @@ fn test_long_iteration_cached() {
     let mut cache = ThreadCache::new(10000);
 
     // 196 requires many iterations and never reaches palindrome in 100 steps
-    let _result = lychrel_iteration_with_cache(BigUint::from(196u32), 100, &mut cache);
+    let _result = lychrel_iteration_with_cache(BigUint::from(196u32), 100, &mut cache, None);
 
     // Should be cached because it has 100 iterations (above 50 threshold)
     assert!(!cache.is_empty(), "Long iterations should be cached");

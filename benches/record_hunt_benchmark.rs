@@ -36,6 +36,7 @@ fn run_benchmark(
     max_duration: Duration,
 ) -> BenchmarkMetrics {
     println!("🏃 Running benchmark: {}", config_name);
+    println!("   Rayon threads: {}", rayon::current_num_threads());
     println!("   Max digits: {}", config.min_digits);
     println!(
         "   Target iterations: {}-{}",
@@ -54,11 +55,11 @@ fn run_benchmark(
     });
 
     let stats_clone = stats.clone();
-    let mut generator = SeedGenerator::new(config.min_digits, config.generator_mode);
+    let mut generator = SeedGenerator::new(config.min_digits, config.generator_mode.clone());
     let mut cache = ThreadCache::new(config.cache_size);
 
-    // Limite absolue de candidats à tester pour éviter l'infini
-    let max_candidates: u64 = 500000;
+    // Limite absolue de candidats à tester pour permettre un volume important
+    let max_candidates: u64 = 5_000_000;
 
     if config.warmup {
         println!("🔥 Warming up cache...");
@@ -71,7 +72,7 @@ fn run_benchmark(
                 break;
             }
 
-            lychrel_iteration_with_cache(BigUint::from(n), 1000, &mut cache);
+            lychrel_iteration_with_cache(BigUint::from(n), 1000, &mut cache, None);
             if n % 100_000 == 0 {
                 println!("  Warmup progress: {}/1,000,000", n);
             }
@@ -90,90 +91,114 @@ fn run_benchmark(
 
     let start_time = Instant::now();
 
+    use rayon::prelude::*;
+
+    // Process in batches to mimic RecordHunter behavior
+    let batch_size = 50_000;
+
     while start_time.elapsed() < max_duration
         && stats_clone
             .candidates_tested
             .load(std::sync::atomic::Ordering::Relaxed)
             < max_candidates
     {
-        if let Some(candidate) = generator.next() {
-            stats_clone
-                .candidates_tested
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-            let cache_stats_before = cache.stats();
-
-            let quick_result = lychrel_iteration(candidate.clone(), 50);
-            let digit_growth = quick_result
-                .final_number
-                .as_ref()
-                .map(|n| n.to_string().len() as f64 / 50.0)
-                .unwrap_or(0.0);
-
-            if digit_growth < 0.4 {
-                continue;
+        // 1. Collect a batch of seeds
+        let mut batch = Vec::with_capacity(batch_size);
+        for _ in 0..batch_size {
+            if let Some(candidate) = generator.next() {
+                batch.push(candidate);
+            } else {
+                break;
             }
+        }
 
-            if quick_result.is_palindrome {
-                continue;
-            }
-
-            let result =
-                lychrel_iteration_with_cache(candidate.clone(), config.max_iterations, &mut cache);
-
-            let cache_stats_after = cache.stats();
-            let hits_delta = cache_stats_after.hits - cache_stats_before.hits;
-            let misses_delta = cache_stats_after.misses - cache_stats_before.misses;
-
-            stats_clone
-                .cache_hits
-                .fetch_add(hits_delta, std::sync::atomic::Ordering::Relaxed);
-            stats_clone
-                .cache_misses
-                .fetch_add(misses_delta, std::sync::atomic::Ordering::Relaxed);
-            stats_clone
-                .seeds_tested
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-            if result.is_palindrome
-                && result.iterations >= config.target_iterations
-                && result.iterations <= config.max_iterations
-            {
-                let final_digits = result
-                    .final_number
-                    .as_ref()
-                    .map(|n| n.to_string().len())
-                    .unwrap_or(0);
-
-                if final_digits >= config.target_final_digits {
-                    stats_clone
-                        .records_found
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-                    let current_best = stats_clone
-                        .best_iterations
-                        .load(std::sync::atomic::Ordering::Relaxed);
-                    if result.iterations > current_best {
-                        stats_clone
-                            .best_iterations
-                            .store(result.iterations, std::sync::atomic::Ordering::Relaxed);
-                    }
-                }
-            }
-
-            if result.iterations >= 200 && result.is_palindrome {
-                let current_best = stats_clone
-                    .best_iterations
-                    .load(std::sync::atomic::Ordering::Relaxed);
-                if result.iterations > current_best {
-                    stats_clone
-                        .best_iterations
-                        .store(result.iterations, std::sync::atomic::Ordering::Relaxed);
-                }
-            }
-        } else {
+        if batch.is_empty() {
             break;
         }
+
+        // 2. Parallel processing of the batch
+        let snapshot = cache.take_snapshot();
+        let current_config = config.clone();
+
+        // We use a local cache for each thread during the fold
+        let merged_cache = batch
+            .par_iter()
+            .fold(
+                || ThreadCache::new_worker(snapshot.clone(), config.cache_size / 8),
+                |mut local_cache, candidate| {
+                    stats_clone
+                        .candidates_tested
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                    // Mimic ProcessResult logic
+                    let quick_result = lychrel_iteration(candidate.clone(), 50);
+                    let start_bits = candidate.bits();
+                    let end_bits = quick_result
+                        .final_number
+                        .as_ref()
+                        .map(|n| n.bits())
+                        .unwrap_or(0);
+
+                    if (end_bits as i64 - start_bits as i64) >= 66 && !quick_result.is_palindrome {
+                        let result = lychrel_iteration_with_cache(
+                            candidate.clone(),
+                            current_config.max_iterations,
+                            &mut local_cache,
+                            None, // Not using path buffer in parallel to avoid allocations
+                        );
+
+                        stats_clone
+                            .seeds_tested
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                        if result.is_palindrome
+                            && result.iterations >= current_config.target_iterations
+                        {
+                            let final_digits = result
+                                .final_number
+                                .as_ref()
+                                .map(|n| n.to_string().len())
+                                .unwrap_or(0);
+                            if final_digits >= current_config.target_final_digits {
+                                stats_clone
+                                    .records_found
+                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                                let current_best = stats_clone
+                                    .best_iterations
+                                    .load(std::sync::atomic::Ordering::Relaxed);
+                                if result.iterations > current_best {
+                                    let _ = stats_clone.best_iterations.compare_exchange(
+                                        current_best,
+                                        result.iterations,
+                                        std::sync::atomic::Ordering::Relaxed,
+                                        std::sync::atomic::Ordering::Relaxed,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    local_cache
+                },
+            )
+            .reduce(
+                || ThreadCache::new_empty(config.cache_size / 8),
+                |mut a, b| {
+                    a.merge(b);
+                    a
+                },
+            );
+
+        // 3. Merge back to main cache
+        cache.restore_snapshot(snapshot);
+        let worker_stats = merged_cache.stats();
+        stats_clone
+            .cache_hits
+            .fetch_add(worker_stats.hits, std::sync::atomic::Ordering::Relaxed);
+        stats_clone
+            .cache_misses
+            .fetch_add(worker_stats.misses, std::sync::atomic::Ordering::Relaxed);
+        cache.merge(merged_cache);
     }
 
     let elapsed = start_time.elapsed();
@@ -295,18 +320,18 @@ fn main() {
     // Use clap to parse arguments manually since this is a benchmark
     let args: Vec<String> = std::env::args().collect();
     let mut duration_secs = 300; // Default 5 minutes
-    
+
     // Parse --duration or -d argument
     for i in 0..args.len() {
         if args[i] == "--duration" || args[i] == "-d" {
             if i + 1 < args.len() {
-                if let Ok(d) = args[i+1].parse::<u64>() {
+                if let Ok(d) = args[i + 1].parse::<u64>() {
                     duration_secs = d;
                 }
             }
         }
     }
-    
+
     let max_duration = Duration::from_secs(duration_secs);
     println!("⏱️  Max duration per benchmark: {} seconds", duration_secs);
 
@@ -369,6 +394,36 @@ fn main() {
                 checkpoint_interval: 0,
                 checkpoint_file: "/dev/null".to_string(),
                 warmup: true,
+            },
+        ),
+        (
+            "High Seed Volume (Targeted 289+)",
+            HuntConfig {
+                min_digits: 23,
+                max_digits: Some(23),
+                target_iterations: 289,
+                max_iterations: 500,
+                target_final_digits: 142,
+                cache_size: 1000000,
+                generator_mode: GeneratorMode::Sequential,
+                checkpoint_interval: 0,
+                checkpoint_file: "/dev/null".to_string(),
+                warmup: false,
+            },
+        ),
+        (
+            "Stress Test (High Depth 10k)",
+            HuntConfig {
+                min_digits: 23,
+                max_digits: Some(23),
+                target_iterations: 289,
+                max_iterations: 10000,
+                target_final_digits: 200,
+                cache_size: 1000000,
+                generator_mode: GeneratorMode::Sequential,
+                checkpoint_interval: 0,
+                checkpoint_file: "/dev/null".to_string(),
+                warmup: false,
             },
         ),
     ];

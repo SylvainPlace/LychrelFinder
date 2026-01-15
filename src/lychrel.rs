@@ -62,15 +62,8 @@ pub fn reverse_number(n: &BigUint) -> BigUint {
 /// assert!(!is_palindrome(&BigUint::from(123u32)));
 /// ```
 pub fn is_palindrome(n: &BigUint) -> bool {
-    let s = n.to_string();
-    let bytes = s.as_bytes();
-    let len = bytes.len();
-    for i in 0..len / 2 {
-        if bytes[i] != bytes[len - 1 - i] {
-            return false;
-        }
-    }
-    true
+    let reversed = reverse_number(n);
+    *n == reversed
 }
 
 /// Perform Lychrel iteration on a number
@@ -173,17 +166,32 @@ pub fn lychrel_iteration(start: BigUint, max_iterations: u32) -> IterationResult
 /// use num_bigint::BigUint;
 ///
 /// let mut cache = ThreadCache::new(1000);
-/// let result = lychrel_iteration_with_cache(BigUint::from(196u32), 100, &mut cache);
+/// let result = lychrel_iteration_with_cache(BigUint::from(196u32), 100, &mut cache, None);
 /// assert!(!result.is_palindrome);
 /// ```
 pub fn lychrel_iteration_with_cache(
     start: BigUint,
     max_iterations: u32,
     cache: &mut ThreadCache,
+    external_path: Option<&mut Vec<BigUint>>,
 ) -> IterationResult {
     let mut current = start.clone();
     let mut iteration_count = 0;
-    let mut path = Vec::new();
+
+    // Manage path buffer: use external if provided, otherwise create local
+    let mut local_path = if external_path.is_none() {
+        Some(Vec::with_capacity(max_iterations as usize))
+    } else {
+        None
+    };
+
+    let path = match external_path {
+        Some(vec) => {
+            vec.clear();
+            vec
+        }
+        None => local_path.as_mut().unwrap(),
+    };
 
     // If already palindrome
     if is_palindrome(&current) {
@@ -241,7 +249,7 @@ pub fn lychrel_iteration_with_cache(
                     reached_palindrome: true,
                     palindrome_at_iteration: Some(iteration_count),
                 };
-                cache.add_thread(&path, info);
+                cache.add_thread(path, info);
             }
 
             return IterationResult {
@@ -264,7 +272,7 @@ pub fn lychrel_iteration_with_cache(
             reached_palindrome: false,
             palindrome_at_iteration: None,
         };
-        cache.add_thread(&path, info);
+        cache.add_thread(path, info);
     }
 
     IterationResult {

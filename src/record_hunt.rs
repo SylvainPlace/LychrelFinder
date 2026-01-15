@@ -199,7 +199,7 @@ impl RecordHunter {
         let warmup_start = Instant::now();
 
         for n in 1u32..=1_000_000 {
-            lychrel_iteration_with_cache(BigUint::from(n), 1000, &mut self.thread_cache);
+            lychrel_iteration_with_cache(BigUint::from(n), 1000, &mut self.thread_cache, None);
 
             if n % 100_000 == 0 {
                 println!("  Warmup progress: {}/1,000,000", n);
@@ -241,27 +241,24 @@ impl RecordHunter {
     /// let results = hunter.hunt();
     /// println!("Found {} records", results.records.len());
     /// ```
+    /// Main hunting loop
     pub fn hunt(&mut self) -> HuntResults {
-        println!("🎯 Starting record hunt...\n");
+        use rayon::prelude::*;
+
+        println!("🎯 Starting record hunt (Parallel Mode)...\n");
 
         loop {
-            if let Some(candidate) = self.seed_generator.next() {
-                self.test_candidate(candidate);
-
-                // Checkpoint periodically
-                if self
-                    .stats
-                    .numbers_tested
-                    .is_multiple_of(self.checkpoint_interval)
-                {
-                    self.save_checkpoint();
+            // 1. Generate a batch of seeds
+            let mut batch = Vec::with_capacity(100_000);
+            for _ in 0..100_000 {
+                if let Some(candidate) = self.seed_generator.next() {
+                    batch.push(candidate);
+                } else {
+                    break;
                 }
+            }
 
-                // Display stats periodically
-                if self.stats.numbers_tested.is_multiple_of(10000) {
-                    self.print_stats();
-                }
-            } else {
+            if batch.is_empty() {
                 // Generator exhausted for current_digits
                 // Check if we should move to next digit size
                 if let Some(max_digits) = self.max_digits {
@@ -279,121 +276,113 @@ impl RecordHunter {
                         continue;
                     }
                 }
-                // All generators exhausted
-                break;
+                break; // All generators exhausted
+            }
+
+            // 2. Prepare for parallel processing
+            // Take snapshot of global cache for workers to read from
+            let snapshot = self.thread_cache.take_snapshot();
+            let cache_size = 10_000; // Local cache size can be smaller or config-based
+            let config = HuntConfig {
+                min_digits: self.min_digits,
+                max_digits: self.max_digits,
+                target_iterations: self.target_iterations,
+                max_iterations: self.max_iterations,
+                target_final_digits: self.target_final_digits,
+                cache_size: self.thread_cache.len(), // Just for passing config, not used in logic directly
+                generator_mode: self.generator_mode.clone(),
+                checkpoint_interval: self.checkpoint_interval,
+                checkpoint_file: self.checkpoint_file.clone(),
+                warmup: false,
+            };
+
+            // 3. Process batch in parallel
+            let (results, merged_cache) = batch
+                .par_iter()
+                .fold(
+                    || {
+                        (
+                            Vec::new(),
+                            ThreadCache::new_worker(snapshot.clone(), cache_size),
+                        )
+                    },
+                    |mut acc, candidate| {
+                        let res = process_candidate(candidate, &mut acc.1, &config);
+                        if let Some(r) = res {
+                            acc.0.push(r);
+                        }
+                        acc
+                    },
+                )
+                .reduce(
+                    || (Vec::new(), ThreadCache::new_empty(cache_size)),
+                    |mut a, b| {
+                        a.0.extend(b.0);
+                        a.1.merge(b.1);
+                        a
+                    },
+                );
+
+            // 4. Update state with results
+            // Restore main cache
+            self.thread_cache.restore_snapshot(snapshot);
+            // Merge new knowledge from workers
+            self.thread_cache.merge(merged_cache);
+
+            // Update stats
+            self.stats.numbers_tested += batch.len() as u64;
+            self.current_range_tested += batch.len() as u64;
+
+            for res in results {
+                self.stats.seeds_tested += 1;
+
+                // Update specific stats
+                if res.final_digits > self.stats.best_digits_found {
+                    self.stats.best_digits_found = res.final_digits;
+                }
+                if res.iterations > self.stats.best_iterations_found {
+                    self.stats.best_iterations_found = res.iterations;
+                }
+
+                if res.is_record {
+                    self.handle_record_found(RecordCandidate {
+                        number: res.number.clone(),
+                        iterations: res.iterations,
+                        final_digits: res.final_digits,
+                        found_at: chrono::Local::now().to_string(),
+                    });
+                }
+
+                // Add to candidates list if needed
+                if res.is_promising {
+                    self.stats.candidates_above_200.push(RecordCandidate {
+                        number: res.number,
+                        iterations: res.iterations,
+                        final_digits: res.final_digits,
+                        found_at: chrono::Local::now().to_string(),
+                    });
+                }
+            }
+
+            // Sync cache stats
+            let cache_stats = self.thread_cache.stats();
+            self.stats.cache_hits = cache_stats.hits;
+            self.stats.cache_misses = cache_stats.misses;
+
+            // 5. Periodic actions
+            if self
+                .stats
+                .numbers_tested
+                .is_multiple_of(self.checkpoint_interval)
+            {
+                self.save_checkpoint();
+            }
+            if self.stats.numbers_tested.is_multiple_of(100_000) {
+                self.print_stats();
             }
         }
 
         self.finalize()
-    }
-
-    /// Test a candidate number for Lychrel properties
-    ///
-    /// This function tests a candidate number to determine if it's a potential
-    /// Lychrel number or if it reaches a palindrome. It performs a quick filter
-    /// phase first, then a full test with cache if the candidate passes the filter.
-    ///
-    /// # Arguments
-    ///
-    /// * `candidate` - The number to test as a BigUint
-    ///
-    /// # Process
-    ///
-    /// 1. Quick filter phase (50 iterations)
-    ///    - Checks digit growth rate
-    ///    - Rejects if palindrome found too quickly
-    ///    - Rejects if growth is too slow
-    ///
-    /// 2. Full test phase (up to max_iterations)
-    ///    - Uses cached results if available
-    ///    - Updates cache with new results
-    ///    - Tracks records and promising candidates
-    fn test_candidate(&mut self, candidate: BigUint) {
-        self.stats.numbers_tested += 1;
-        self.current_range_tested += 1;
-
-        // Phase 1: Quick filter (50 first iterations)
-        let quick_result = lychrel_iteration(candidate.clone(), 50);
-
-        // Reject if growth too slow
-        let digit_growth = quick_result
-            .final_number
-            .as_ref()
-            .map(|n| n.to_string().len() as f64 / 50.0)
-            .unwrap_or(0.0);
-
-        if digit_growth < 0.4 {
-            return; // Growth too slow
-        }
-
-        // Reject if palindrome found too quickly
-        if quick_result.is_palindrome {
-            return;
-        }
-
-        // Phase 2: Full test with cache
-        // Test up to max_iterations to determine if it's truly a record or a Lychrel
-        let result = lychrel_iteration_with_cache(
-            candidate.clone(),
-            self.max_iterations,
-            &mut self.thread_cache,
-        );
-
-        self.stats.seeds_tested += 1;
-
-        // Update cache stats
-        let cache_stats = self.thread_cache.stats();
-        self.stats.cache_hits = cache_stats.hits;
-        self.stats.cache_misses = cache_stats.misses;
-
-        // Check if it's a record
-        // A record is a number that:
-        // 1. REACHES a palindrome (not a Lychrel)
-        // 2. Takes between target_iterations and max_iterations
-        // 3. Numbers beyond max_iterations without palindrome are likely true Lychrels
-        if result.is_palindrome
-            && result.iterations >= self.target_iterations
-            && result.iterations <= self.max_iterations
-        {
-            let final_digits = result
-                .final_number
-                .as_ref()
-                .map(|n| n.to_string().len())
-                .unwrap_or(0);
-
-            if final_digits >= self.target_final_digits {
-                // RECORD FOUND! Update best stats for actual records
-                if result.iterations > self.stats.best_iterations_found {
-                    self.stats.best_iterations_found = result.iterations;
-                }
-                if final_digits > self.stats.best_digits_found {
-                    self.stats.best_digits_found = final_digits;
-                }
-
-                self.handle_record_found(RecordCandidate {
-                    number: candidate.to_string(),
-                    iterations: result.iterations,
-                    final_digits,
-                    found_at: chrono::Local::now().to_string(),
-                });
-            }
-        }
-
-        // Track promising candidates (200+ iterations) - ONLY palindromes, not Lychrels!
-        if result.is_palindrome && result.iterations >= 200 {
-            let final_digits = result
-                .final_number
-                .as_ref()
-                .map(|n| n.to_string().len())
-                .unwrap_or(0);
-
-            self.stats.candidates_above_200.push(RecordCandidate {
-                number: candidate.to_string(),
-                iterations: result.iterations,
-                final_digits,
-                found_at: chrono::Local::now().to_string(),
-            });
-        }
     }
 
     fn handle_record_found(&mut self, record: RecordCandidate) {
@@ -532,5 +521,79 @@ impl RecordHunter {
             best_iterations_found: self.stats.best_iterations_found,
             elapsed_time: elapsed,
         }
+    }
+}
+
+struct ProcessResult {
+    number: String,
+    iterations: u32,
+    final_digits: usize,
+    is_record: bool,
+    is_promising: bool,
+}
+
+/// Pure function to process a candidate
+fn process_candidate(
+    candidate: &BigUint,
+    cache: &mut ThreadCache,
+    config: &HuntConfig,
+) -> Option<ProcessResult> {
+    // Phase 1: Quick filter (50 first iterations)
+    let quick_result = lychrel_iteration(candidate.clone(), 50);
+
+    // Reject if growth too slow
+    let start_bits = candidate.bits();
+    let end_bits = quick_result
+        .final_number
+        .as_ref()
+        .map(|n| n.bits())
+        .unwrap_or(0);
+
+    // Growth threshold: 0.4 digits/iter => 20 digits in 50 iters
+    // 20 digits is approx 66 bits (20 / 0.301)
+    if (end_bits as i64 - start_bits as i64) < 66 {
+        return None; // Growth too slow
+    }
+
+    // Reject if palindrome found too quickly
+    if quick_result.is_palindrome {
+        return None;
+    }
+
+    // Phase 2: Full test with cache
+    let result =
+        lychrel_iteration_with_cache(candidate.clone(), config.max_iterations, cache, None);
+
+    // Check for record or promising candidate
+    // A record is a number that:
+    // 1. REACHES a palindrome (not a Lychrel)
+    // 2. Takes between target_iterations and max_iterations
+    // 3. Numbers beyond max_iterations without palindrome are likely true Lychrels
+    let is_record = result.is_palindrome
+        && result.iterations >= config.target_iterations
+        && result.iterations <= config.max_iterations
+        && result
+            .final_number
+            .as_ref()
+            .map_or(0, |n| n.to_string().len())
+            >= config.target_final_digits;
+
+    let is_promising = result.is_palindrome && result.iterations >= 200;
+
+    if is_record || is_promising {
+        Some(ProcessResult {
+            number: candidate.to_string(),
+            iterations: result.iterations,
+            final_digits: result
+                .final_number
+                .as_ref()
+                .map(|n| n.to_string().len())
+                .unwrap_or(0),
+            is_record,
+            is_promising,
+        })
+    } else {
+        // Just updating cache stats happens inside cache
+        None
     }
 }

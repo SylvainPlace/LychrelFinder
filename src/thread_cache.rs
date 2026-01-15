@@ -2,6 +2,7 @@ use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreadInfo {
@@ -15,7 +16,8 @@ pub struct ThreadInfo {
 
 #[derive(Debug)]
 pub struct ThreadCache {
-    known_values: HashMap<String, ThreadInfo>,
+    known_values: HashMap<BigUint, ThreadInfo>,
+    snapshot: Option<Arc<HashMap<BigUint, ThreadInfo>>>,
     max_cache_size: usize,
     hits: u64,
     misses: u64,
@@ -43,19 +45,26 @@ impl ThreadCache {
     pub fn new(max_size: usize) -> Self {
         ThreadCache {
             known_values: HashMap::new(),
+            snapshot: None,
             max_cache_size: max_size,
             hits: 0,
             misses: 0,
         }
     }
 
-    /// Check if a value exists in the cache
+    /// Check if a value exists in the cache (local or snapshot)
     pub fn check(&mut self, value: &BigUint) -> Option<ThreadInfo> {
-        let key = value.to_string();
-
-        if let Some(info) = self.known_values.get(&key) {
+        if let Some(info) = self.known_values.get(value) {
             self.hits += 1;
             Some(info.clone())
+        } else if let Some(ref snapshot) = self.snapshot {
+            if let Some(info) = snapshot.get(value) {
+                self.hits += 1;
+                Some(info.clone())
+            } else {
+                self.misses += 1;
+                None
+            }
         } else {
             self.misses += 1;
             None
@@ -97,8 +106,6 @@ impl ThreadCache {
         let cache_limit = 100.min(path.len());
 
         for (idx, number) in path.iter().take(cache_limit).enumerate() {
-            let key = number.to_string();
-
             // Create modified info for this specific position in the thread
             let position_info = ThreadInfo {
                 seed_number: info.seed_number.clone(),
@@ -109,7 +116,7 @@ impl ThreadCache {
                 palindrome_at_iteration: info.palindrome_at_iteration,
             };
 
-            self.known_values.insert(key, position_info);
+            self.known_values.insert(number.clone(), position_info);
         }
 
         // Evict if needed
@@ -132,7 +139,7 @@ impl ThreadCache {
 
             // Remove the bottom 10% to avoid frequent evictions
             let to_remove = (self.max_cache_size / 10).max(1);
-            let keys_to_remove: Vec<String> = entries
+            let keys_to_remove: Vec<BigUint> = entries
                 .iter()
                 .take(to_remove)
                 .map(|(key, _)| (*key).clone())
@@ -172,7 +179,7 @@ impl ThreadCache {
     }
 
     /// Export important threads (200+ iterations) for sharing
-    pub fn export_important(&self) -> Vec<(String, ThreadInfo)> {
+    pub fn export_important(&self) -> Vec<(BigUint, ThreadInfo)> {
         self.known_values
             .iter()
             .filter(|(_, info)| info.max_iterations_tested >= 200)
@@ -182,15 +189,27 @@ impl ThreadCache {
 
     /// Save cache to file
     pub fn save_to_file(&self, path: &Path) -> std::io::Result<()> {
-        crate::io_utils::save_to_file(&self.known_values, path)
+        // Convert keys to string for JSON serialization (JSON keys must be strings)
+        let string_map: HashMap<String, ThreadInfo> = self
+            .known_values
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect();
+        crate::io_utils::save_to_file(&string_map, path)
     }
 
     /// Load cache from file
     pub fn load_from_file(path: &Path, max_size: usize) -> std::io::Result<Self> {
-        let known_values: HashMap<String, ThreadInfo> = crate::io_utils::load_from_file(path)?;
+        let string_map: HashMap<String, ThreadInfo> = crate::io_utils::load_from_file(path)?;
+
+        let known_values: HashMap<BigUint, ThreadInfo> = string_map
+            .into_iter()
+            .map(|(k, v)| (k.parse::<BigUint>().unwrap_or_default(), v))
+            .collect();
 
         Ok(ThreadCache {
             known_values,
+            snapshot: None,
             max_cache_size: max_size,
             hits: 0,
             misses: 0,
@@ -198,8 +217,13 @@ impl ThreadCache {
     }
 
     /// Merge another cache into this one
-    pub fn merge(&mut self, other: HashMap<String, ThreadInfo>) {
-        for (key, info) in other {
+    pub fn merge(&mut self, other: ThreadCache) {
+        // Merge stats
+        self.hits += other.hits;
+        self.misses += other.misses;
+
+        // Merge values
+        for (key, info) in other.known_values {
             // Only merge if not exists or if the other has more iterations tested
             if let Some(existing) = self.known_values.get(&key) {
                 if info.max_iterations_tested > existing.max_iterations_tested {
@@ -211,6 +235,48 @@ impl ThreadCache {
         }
 
         self.evict_if_needed();
+    }
+
+    /// Take a snapshot of the current cache
+    /// Moves known_values to an Arc and clears local known_values
+    pub fn take_snapshot(&mut self) -> Arc<HashMap<BigUint, ThreadInfo>> {
+        let values = std::mem::take(&mut self.known_values);
+        let arc = Arc::new(values);
+        self.snapshot = Some(arc.clone());
+        arc
+    }
+
+    /// Restore cache from a snapshot/merged values
+    pub fn restore_snapshot(&mut self, snapshot: Arc<HashMap<BigUint, ThreadInfo>>) {
+        // Try to unwrap to avoid cloning if we are the last owner
+        // If not, we have to clone.
+        match Arc::try_unwrap(snapshot) {
+            Ok(values) => self.known_values = values,
+            Err(arc) => self.known_values = (*arc).clone(),
+        }
+        self.snapshot = None;
+    }
+
+    /// Create a new worker cache with a reference to the snapshot
+    pub fn new_worker(snapshot: Arc<HashMap<BigUint, ThreadInfo>>, max_size: usize) -> Self {
+        ThreadCache {
+            known_values: HashMap::new(),
+            snapshot: Some(snapshot),
+            max_cache_size: max_size,
+            hits: 0,
+            misses: 0,
+        }
+    }
+
+    /// Create a new empty cache (helper for reduce)
+    pub fn new_empty(max_size: usize) -> Self {
+        ThreadCache {
+            known_values: HashMap::new(),
+            snapshot: None,
+            max_cache_size: max_size,
+            hits: 0,
+            misses: 0,
+        }
     }
 
     /// Get the number of entries in the cache
