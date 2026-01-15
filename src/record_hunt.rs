@@ -87,7 +87,7 @@ impl Default for HuntConfig {
             target_final_digits: 142,
             cache_size: 1_000_000,
             generator_mode: GeneratorMode::Sequential,
-            checkpoint_interval: 100_000,
+            checkpoint_interval: 1_000_000,
             checkpoint_file: "hunt_checkpoint.json".to_string(),
             warmup: false,
         }
@@ -248,22 +248,17 @@ impl RecordHunter {
         println!("🎯 Starting record hunt (Parallel Mode)...\n");
 
         loop {
-            // 1. Generate a batch of seeds
-            let mut batch = Vec::with_capacity(100_000);
-            for _ in 0..100_000 {
-                if let Some(candidate) = self.seed_generator.next() {
-                    batch.push(candidate);
-                } else {
-                    break;
-                }
-            }
+            // 1. Parallel Generate a raw batch of candidates
+            // Generate consecutive numbers efficiently
+            let batch_size = 500_000;
 
-            if batch.is_empty() {
-                // Generator exhausted for current_digits
-                // Check if we should move to next digit size
+            // Advance the generator's state sequentially (very fast)
+            let raw_batch = self.seed_generator.next_raw_batch(batch_size);
+
+            if raw_batch.is_empty() {
+                // ... logic to move to next digit size ...
                 if let Some(max_digits) = self.max_digits {
                     if self.current_digits < max_digits {
-                        // Reset current_range_tested counter for the new digit range
                         self.current_range_tested = 0;
                         self.current_digits += 1;
                         let progress = self.calculate_progress_percentage();
@@ -276,20 +271,20 @@ impl RecordHunter {
                         continue;
                     }
                 }
-                break; // All generators exhausted
+                break;
             }
 
             // 2. Prepare for parallel processing
-            // Take snapshot of global cache for workers to read from
             let snapshot = self.thread_cache.take_snapshot();
-            let cache_size = 10_000; // Local cache size can be smaller or config-based
+            let p10_max = self.seed_generator.current_p10_max();
+            let worker_cache_size = 10_000;
             let config = HuntConfig {
                 min_digits: self.min_digits,
                 max_digits: self.max_digits,
                 target_iterations: self.target_iterations,
                 max_iterations: self.max_iterations,
                 target_final_digits: self.target_final_digits,
-                cache_size: self.thread_cache.len(), // Just for passing config, not used in logic directly
+                cache_size: self.thread_cache.len(),
                 generator_mode: self.generator_mode.clone(),
                 checkpoint_interval: self.checkpoint_interval,
                 checkpoint_file: self.checkpoint_file.clone(),
@@ -297,16 +292,22 @@ impl RecordHunter {
             };
 
             // 3. Process batch in parallel
-            let (results, merged_cache) = batch
+            let (results, merged_cache, seeds_tested) = raw_batch
                 .par_iter()
                 .fold(
                     || {
                         (
                             Vec::new(),
-                            ThreadCache::new_worker(snapshot.clone(), cache_size),
+                            ThreadCache::new_worker(snapshot.clone(), worker_cache_size),
+                            0u64,
                         )
                     },
                     |mut acc, candidate| {
+                        if !crate::seed_generator::is_potential_seed(candidate, Some(&p10_max)) {
+                            return acc;
+                        }
+
+                        acc.2 += 1;
                         let res = process_candidate(candidate, &mut acc.1, &config);
                         if let Some(r) = res {
                             acc.0.push(r);
@@ -315,26 +316,27 @@ impl RecordHunter {
                     },
                 )
                 .reduce(
-                    || (Vec::new(), ThreadCache::new_empty(cache_size)),
+                    || (Vec::new(), ThreadCache::new_empty(worker_cache_size), 0u64),
                     |mut a, b| {
                         a.0.extend(b.0);
                         a.1.merge(b.1);
+                        a.2 += b.2;
                         a
                     },
                 );
 
             // 4. Update state with results
-            // Restore main cache
-            self.thread_cache.restore_snapshot(snapshot);
-            // Merge new knowledge from workers
+            drop(snapshot); // CRITICAL: Release the Arc reference so merge is fast
             self.thread_cache.merge(merged_cache);
 
             // Update stats
-            self.stats.numbers_tested += batch.len() as u64;
-            self.current_range_tested += batch.len() as u64;
+            let actual_batch_size = raw_batch.len() as u64;
+            self.stats.numbers_tested += actual_batch_size;
+            self.stats.seeds_tested += seeds_tested;
+            self.current_range_tested += actual_batch_size;
 
             for res in results {
-                self.stats.seeds_tested += 1;
+                // Update specific stats
 
                 // Update specific stats
                 if res.final_digits > self.stats.best_digits_found {

@@ -139,13 +139,13 @@ Example `hunt_config.json`:
 
 ```bash
 # Basic hunt for 23+ digit numbers
-cargo run --release -- hunt-record --min-digits 23
+cargo run --release --bin lychrel-finder hunt-record --min-digits 23
 
 # With cache warmup (recommended for better performance)
-cargo run --release -- hunt-record --min-digits 23 --warmup true
+cargo run --release --bin lychrel-finder hunt-record --min-digits 23 --warmup true
 
 # Custom targets (search for 300+ iterations, 150+ final digits)
-cargo run --release -- hunt-record \
+cargo run --release --bin lychrel-finder hunt-record \
     --min-digits 25 \
     --target-iterations 300 \
     --max-iterations 310 \
@@ -153,8 +153,8 @@ cargo run --release -- hunt-record \
     --warmup true
 
 # Different generation modes
-cargo run --release -- hunt-record --mode sequential --min-digits 20
-cargo run --release -- hunt-record --mode random --min-digits 23
+cargo run --release --bin lychrel-finder hunt-record --mode sequential --min-digits 20
+cargo run --release --bin lychrel-finder hunt-record --mode random --min-digits 23
 ```
 
 Example output:

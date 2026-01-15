@@ -16,7 +16,7 @@ pub struct ThreadInfo {
 
 #[derive(Debug)]
 pub struct ThreadCache {
-    known_values: HashMap<BigUint, ThreadInfo>,
+    known_values: Arc<HashMap<BigUint, ThreadInfo>>,
     snapshot: Option<Arc<HashMap<BigUint, ThreadInfo>>>,
     max_cache_size: usize,
     hits: u64,
@@ -44,7 +44,7 @@ pub enum DetectionResult {
 impl ThreadCache {
     pub fn new(max_size: usize) -> Self {
         ThreadCache {
-            known_values: HashMap::new(),
+            known_values: Arc::new(HashMap::new()),
             snapshot: None,
             max_cache_size: max_size,
             hits: 0,
@@ -72,81 +72,44 @@ impl ThreadCache {
     }
 
     /// Add a new thread to the cache
-    ///
-    /// This function adds a sequence of numbers (thread) to the cache along with
-    /// information about the thread. Only the first N values of the path are cached
-    /// to limit memory usage. If the cache exceeds its maximum size, entries with
-    /// the lowest iteration counts are evicted.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - A slice of BigUint representing the sequence of numbers in the thread
-    /// * `info` - ThreadInfo containing metadata about the thread
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lychrel_finder::thread_cache::{ThreadCache, ThreadInfo};
-    /// use num_bigint::BigUint;
-    ///
-    /// let mut cache = ThreadCache::new(1000);
-    /// let path = vec![BigUint::from(887u32), BigUint::from(1675u32)];
-    /// let info = ThreadInfo {
-    ///     seed_number: "196".to_string(),
-    ///     iterations_from_seed: 0,
-    ///     max_iterations_tested: 100,
-    ///     final_digits: 50,
-    ///     reached_palindrome: false,
-    ///     palindrome_at_iteration: None,
-    /// };
-    /// cache.add_thread(&path, info);
-    /// ```
     pub fn add_thread(&mut self, path: &[BigUint], info: ThreadInfo) {
-        // Only cache the first N values of the path (e.g., first 100)
-        let cache_limit = 100.min(path.len());
-
-        for (idx, number) in path.iter().take(cache_limit).enumerate() {
-            // Create modified info for this specific position in the thread
-            let position_info = ThreadInfo {
-                seed_number: info.seed_number.clone(),
-                iterations_from_seed: info.iterations_from_seed + idx as u32,
-                max_iterations_tested: info.max_iterations_tested,
-                final_digits: info.final_digits,
-                reached_palindrome: info.reached_palindrome,
-                palindrome_at_iteration: info.palindrome_at_iteration,
-            };
-
-            self.known_values.insert(number.clone(), position_info);
+        if path.is_empty() {
+            return;
         }
 
-        // Evict if needed
+        let map = Arc::make_mut(&mut self.known_values);
+
+        // Only cache the first few elements to avoid memory explosion
+        // and because later elements are more likely to be cached by other seeds
+        let limit = 50; // Cache 50 iterations
+        for (i, val) in path.iter().enumerate().take(limit) {
+            let mut val_info = info.clone();
+            val_info.iterations_from_seed += i as u32;
+
+            // Update iterations from seed
+            map.insert(val.clone(), val_info);
+        }
+
         self.evict_if_needed();
     }
 
     /// Determine if a thread should be cached based on its properties
     pub fn should_cache(&self, iterations: u32) -> bool {
-        // Only cache threads with 50+ iterations (interesting ones)
-        iterations >= 50
+        iterations >= 50 // Only cache if it took some effort
     }
 
-    /// Evict entries if cache is over capacity
-    /// Uses a simple strategy: evict entries with low iterations
+    /// Evict entries if cache size exceeds maximum
     pub fn evict_if_needed(&mut self) {
-        if self.known_values.len() > self.max_cache_size {
-            // Find entries with lowest max_iterations_tested
-            let mut entries: Vec<_> = self.known_values.iter().collect();
-            entries.sort_by_key(|(_, info)| info.max_iterations_tested);
+        let map = Arc::make_mut(&mut self.known_values);
+        if map.len() > self.max_cache_size {
+            // Simple eviction: remove about 20% of the cache
+            let to_remove = map.len() - self.max_cache_size + (self.max_cache_size / 5);
 
-            // Remove the bottom 10% to avoid frequent evictions
-            let to_remove = (self.max_cache_size / 10).max(1);
-            let keys_to_remove: Vec<BigUint> = entries
-                .iter()
-                .take(to_remove)
-                .map(|(key, _)| (*key).clone())
-                .collect();
-
-            for key in keys_to_remove {
-                self.known_values.remove(&key);
+            // In a more advanced implementation, we'd use LRU or LFU
+            // Here we just remove "random" entries (HashMap iteration order)
+            let keys: Vec<BigUint> = map.keys().take(to_remove).cloned().collect();
+            for key in keys {
+                map.remove(&key);
             }
         }
     }
@@ -208,7 +171,7 @@ impl ThreadCache {
             .collect();
 
         Ok(ThreadCache {
-            known_values,
+            known_values: Arc::new(known_values),
             snapshot: None,
             max_cache_size: max_size,
             hits: 0,
@@ -223,14 +186,17 @@ impl ThreadCache {
         self.misses += other.misses;
 
         // Merge values
-        for (key, info) in other.known_values {
+        let map = Arc::make_mut(&mut self.known_values);
+        let other_map = Arc::unwrap_or_clone(other.known_values);
+
+        for (key, info) in other_map {
             // Only merge if not exists or if the other has more iterations tested
-            if let Some(existing) = self.known_values.get(&key) {
+            if let Some(existing) = map.get(&key) {
                 if info.max_iterations_tested > existing.max_iterations_tested {
-                    self.known_values.insert(key, info);
+                    map.insert(key, info);
                 }
             } else {
-                self.known_values.insert(key, info);
+                map.insert(key, info);
             }
         }
 
@@ -238,29 +204,22 @@ impl ThreadCache {
     }
 
     /// Take a snapshot of the current cache
-    /// Moves known_values to an Arc and clears local known_values
     pub fn take_snapshot(&mut self) -> Arc<HashMap<BigUint, ThreadInfo>> {
-        let values = std::mem::take(&mut self.known_values);
-        let arc = Arc::new(values);
-        self.snapshot = Some(arc.clone());
-        arc
+        self.snapshot = Some(self.known_values.clone());
+        self.known_values.clone()
     }
 
     /// Restore cache from a snapshot/merged values
-    pub fn restore_snapshot(&mut self, snapshot: Arc<HashMap<BigUint, ThreadInfo>>) {
-        // Try to unwrap to avoid cloning if we are the last owner
-        // If not, we have to clone.
-        match Arc::try_unwrap(snapshot) {
-            Ok(values) => self.known_values = values,
-            Err(arc) => self.known_values = (*arc).clone(),
-        }
+    pub fn restore_snapshot(&mut self, _snapshot: Arc<HashMap<BigUint, ThreadInfo>>) {
+        // With Arc, take_snapshot doesn't clear known_values, so restore_snapshot
+        // just clears the local snapshot reference.
         self.snapshot = None;
     }
 
     /// Create a new worker cache with a reference to the snapshot
     pub fn new_worker(snapshot: Arc<HashMap<BigUint, ThreadInfo>>, max_size: usize) -> Self {
         ThreadCache {
-            known_values: HashMap::new(),
+            known_values: Arc::new(HashMap::new()),
             snapshot: Some(snapshot),
             max_cache_size: max_size,
             hits: 0,
@@ -271,7 +230,7 @@ impl ThreadCache {
     /// Create a new empty cache (helper for reduce)
     pub fn new_empty(max_size: usize) -> Self {
         ThreadCache {
-            known_values: HashMap::new(),
+            known_values: Arc::new(HashMap::new()),
             snapshot: None,
             max_cache_size: max_size,
             hits: 0,

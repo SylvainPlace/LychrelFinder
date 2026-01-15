@@ -9,6 +9,9 @@ use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Parser)]
 #[command(name = "lychrel-finder")]
 #[command(about = "Find Lychrel numbers using reverse-add iteration", long_about = None)]

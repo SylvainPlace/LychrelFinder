@@ -7,15 +7,14 @@ use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Debug, Clone)]
 struct BenchmarkMetrics {
     config_name: String,
     duration_secs: f64,
-    candidates_tested: u64,
     seeds_tested: u64,
-    cache_hits: u64,
-    cache_misses: u64,
-    records_found: usize,
     best_iterations: u32,
     candidates_per_sec: f64,
     cache_hit_rate: f64,
@@ -204,18 +203,12 @@ fn run_benchmark(
     let elapsed = start_time.elapsed();
     let duration_secs = elapsed.as_secs_f64();
 
-    let candidates_tested = stats
-        .candidates_tested
-        .load(std::sync::atomic::Ordering::Relaxed);
     let seeds_tested = stats
         .seeds_tested
         .load(std::sync::atomic::Ordering::Relaxed);
     let cache_hits = stats.cache_hits.load(std::sync::atomic::Ordering::Relaxed);
     let cache_misses = stats
         .cache_misses
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let records_found = stats
-        .records_found
         .load(std::sync::atomic::Ordering::Relaxed);
     let best_iterations = stats
         .best_iterations
@@ -224,13 +217,9 @@ fn run_benchmark(
     BenchmarkMetrics {
         config_name: config_name.to_string(),
         duration_secs,
-        candidates_tested,
         seeds_tested,
-        cache_hits,
-        cache_misses,
-        records_found,
         best_iterations,
-        candidates_per_sec: candidates_tested as f64 / duration_secs.max(0.1),
+        candidates_per_sec: seeds_tested as f64 / duration_secs.max(0.1),
         cache_hit_rate: if cache_hits + cache_misses > 0 {
             cache_hits as f64 / (cache_hits + cache_misses) as f64
         } else {
@@ -321,12 +310,11 @@ fn main() {
 
     // Parse --duration or -d argument
     for i in 0..args.len() {
-        if (args[i] == "--duration" || args[i] == "-d")
-            && i + 1 < args.len() {
-                if let Ok(d) = args[i + 1].parse::<u64>() {
-                    duration_secs = d;
-                }
+        if (args[i] == "--duration" || args[i] == "-d") && i + 1 < args.len() {
+            if let Ok(d) = args[i + 1].parse::<u64>() {
+                duration_secs = d;
             }
+        }
     }
 
     let max_duration = Duration::from_secs(duration_secs);

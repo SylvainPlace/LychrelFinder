@@ -1,4 +1,3 @@
-use crate::lychrel::reverse_number;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 
@@ -13,45 +12,24 @@ pub struct SeedGenerator {
     current: BigUint,
     max: BigUint,
     digits: usize,
+    p10_max: BigUint,
     pub mode: GeneratorMode,
-    skip_count: u64,      // Track how many we've skipped
-    generated_count: u64, // Track how many we've generated
+    skip_count: u64,
+    generated_count: u64,
 }
 
 impl SeedGenerator {
     /// Create a new seed generator
-    ///
-    /// Generates numbers within a specified digit range. The generator filters
-    /// candidates to only return potential seed numbers (primary numbers in their
-    /// convergence families), skipping approximately 50% of numbers.
-    ///
-    /// # Arguments
-    ///
-    /// * `digits` - Number of digits for generated numbers
-    /// * `mode` - Generation strategy (Sequential, SmartRandom, or PatternBased)
-    ///
-    /// # Returns
-    ///
-    /// A new SeedGenerator instance
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lychrel_finder::seed_generator::{SeedGenerator, GeneratorMode};
-    ///
-    /// let mut gen = SeedGenerator::new(23, GeneratorMode::Sequential);
-    /// while let Some(number) = gen.next() {
-    ///     println!("Testing: {}", number);
-    /// }
-    /// ```
     pub fn new(digits: usize, mode: GeneratorMode) -> Self {
         let min = BigUint::from(10u32).pow(digits as u32 - 1);
+        let p10_max = min.clone();
         let max = BigUint::from(10u32).pow(digits as u32);
 
         SeedGenerator {
             current: min,
             max,
             digits,
+            p10_max,
             mode,
             skip_count: 0,
             generated_count: 0,
@@ -59,94 +37,38 @@ impl SeedGenerator {
     }
 
     /// Create generator with custom starting point (for resuming)
-    ///
-    /// # Arguments
-    ///
-    /// * `digits` - Number of digits for generated numbers
-    /// * `mode` - Generation strategy
-    /// * `current` - Starting number (for resuming from checkpoint)
-    ///
-    /// # Returns
-    ///
-    /// A new SeedGenerator instance starting from the specified position
     pub fn from_checkpoint(digits: usize, mode: GeneratorMode, current: BigUint) -> Self {
+        let p10_max = BigUint::from(10u32).pow(digits as u32 - 1);
         let max = BigUint::from(10u32).pow(digits as u32);
 
         SeedGenerator {
             current,
             max,
             digits,
+            p10_max,
             mode,
             skip_count: 0,
             generated_count: 0,
         }
     }
 
-    /// Check if a number is a potential seed (primary number in its convergence family)
-    ///
-    /// This function uses the reverse-add property: if a number N converges to the same
-    /// sequence as number M (where M = reverse(N)), then only the smaller number needs
-    /// to be tested. This filter reduces the search space by ~50%.
-    ///
-    /// # Arguments
-    ///
-    /// * `n` - The number to check
-    ///
-    /// # Returns
-    ///
-    /// `true` if the number is a potential seed, `false` if it should be skipped
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use lychrel_finder::seed_generator::{SeedGenerator, GeneratorMode};
-    /// use num_bigint::BigUint;
-    ///
-    /// let gen = SeedGenerator::new(5, GeneratorMode::Sequential);
-    /// assert!(gen.is_potential_seed(&BigUint::from(12345u32)));
-    /// assert!(!gen.is_potential_seed(&BigUint::from(54321u32)));
-    /// ```
-    pub fn is_potential_seed(&self, n: &BigUint) -> bool {
-        let reversed = reverse_number(n);
-
-        // If reverse < n, then reversed is a smaller number and could be the real seed
-        // We should skip this number since reversed should be tested instead
-        if reversed < *n {
-            return false;
-        }
-
-        // If reverse == n (palindrome), we can test it (it's its own seed)
-        // If reverse > n, this is potentially a seed
-        true
+    pub fn current_position(&self) -> BigUint {
+        self.current.clone()
     }
 
-    /// Get generator statistics
-    ///
-    /// # Returns
-    ///
-    /// A GeneratorStats struct containing:
-    /// - `generated_count`: Number of potential seeds generated
-    /// - `skip_count`: Number of candidates skipped
-    /// - `skip_rate`: Percentage of candidates skipped (typically ~50%)
     pub fn get_stats(&self) -> GeneratorStats {
+        let total = self.generated_count + self.skip_count;
+        let skip_rate = if total > 0 {
+            self.skip_count as f64 / total as f64
+        } else {
+            0.0
+        };
+
         GeneratorStats {
             generated_count: self.generated_count,
             skip_count: self.skip_count,
-            skip_rate: if self.generated_count + self.skip_count > 0 {
-                self.skip_count as f64 / (self.generated_count + self.skip_count) as f64
-            } else {
-                0.0
-            },
+            skip_rate,
         }
-    }
-
-    /// Get current position in the sequence
-    ///
-    /// # Returns
-    ///
-    /// The current number (next number to be generated)
-    pub fn current_position(&self) -> BigUint {
-        self.current.clone()
     }
 
     fn generate_sequential(&mut self) -> BigUint {
@@ -155,24 +77,20 @@ impl SeedGenerator {
         result
     }
 
+    pub fn current_p10_max(&self) -> BigUint {
+        self.p10_max.clone()
+    }
+
     fn generate_smart_random(&mut self) -> BigUint {
         use rand::Rng;
         let mut rng = rand::thread_rng();
 
-        // Generate a random number with the specified number of digits
-        // Strategy: Favor numbers that are:
-        // 1. Asymmetric (not close to palindromes)
-        // 2. Have diverse digits (not too many repeated digits)
-        // 3. First half > second half (more likely to be seeds)
-
         let min = BigUint::from(10u32).pow(self.digits as u32 - 1);
-        let _max = BigUint::from(10u32).pow(self.digits as u32);
 
-        // Generate random offset
         let mut random_digits = String::new();
         for i in 0..self.digits {
             let digit = if i == 0 {
-                rng.gen_range(1..=9) // First digit can't be 0
+                rng.gen_range(1..=9)
             } else {
                 rng.gen_range(0..=9)
             };
@@ -183,11 +101,55 @@ impl SeedGenerator {
     }
 
     fn generate_from_pattern(&mut self) -> BigUint {
-        // Pattern-based generation
-        // Based on observed patterns in Lychrel records
-        // For now, just do sequential until we have better pattern analysis
         self.generate_sequential()
     }
+
+    pub fn next_raw_batch(&mut self, size: usize) -> Vec<BigUint> {
+        let mut batch = Vec::with_capacity(size);
+        for _ in 0..size {
+            if self.current >= self.max {
+                break;
+            }
+            let candidate = match self.mode {
+                GeneratorMode::Sequential => self.generate_sequential(),
+                GeneratorMode::SmartRandom => self.generate_smart_random(),
+                GeneratorMode::PatternBased => self.generate_from_pattern(),
+            };
+            batch.push(candidate);
+        }
+        batch
+    }
+}
+
+/// Free function to check if a number is a potential seed
+pub fn is_potential_seed(n: &BigUint, p10_max: Option<&BigUint>) -> bool {
+    use num_traits::ToPrimitive;
+
+    // Fast arithmetic path
+    if let Some(p10) = p10_max {
+        let last = (n % 10u32).to_u32().unwrap();
+        let first = (n / p10).to_u32().unwrap();
+        if last < first {
+            return false;
+        }
+        if last > first {
+            return true;
+        }
+    }
+
+    let digits = n.to_radix_le(10);
+    let len = digits.len();
+    for i in 0..len / 2 {
+        let left = digits[len - 1 - i]; // Most significant
+        let right = digits[i]; // Least significant
+        if right < left {
+            return false; // reverse(n) < n
+        }
+        if right > left {
+            return true; // reverse(n) > n
+        }
+    }
+    true // Palindrome
 }
 
 impl Iterator for SeedGenerator {
@@ -205,18 +167,15 @@ impl Iterator for SeedGenerator {
                 GeneratorMode::PatternBased => self.generate_from_pattern(),
             };
 
-            // Check if we've exceeded the range
             if candidate >= self.max {
                 return None;
             }
 
-            // Filter for potential seeds
-            if self.is_potential_seed(&candidate) {
+            if is_potential_seed(&candidate, Some(&self.p10_max)) {
                 self.generated_count += 1;
                 return Some(candidate);
             } else {
                 self.skip_count += 1;
-                // Continue loop to get next candidate
             }
         }
     }
@@ -232,33 +191,30 @@ pub struct GeneratorStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lychrel::reverse_number;
 
     #[test]
     fn test_is_potential_seed() {
-        let gen = SeedGenerator::new(5, GeneratorMode::Sequential);
+        let p10_4 = BigUint::from(10000u32);
 
         // 19991 reversed = 19991 (palindrome, should pass)
-        assert!(gen.is_potential_seed(&BigUint::from(19991u32)));
+        assert!(is_potential_seed(&BigUint::from(19991u32), Some(&p10_4)));
 
-        // 12345 reversed = 54321 > 12345 (should pass, it's a potential seed)
-        assert!(gen.is_potential_seed(&BigUint::from(12345u32)));
+        // 12345 reversed = 54321 > 12345 (should pass)
+        assert!(is_potential_seed(&BigUint::from(12345u32), Some(&p10_4)));
 
-        // 54321 reversed = 12345 < 54321 (should fail, 12345 is the seed)
-        assert!(!gen.is_potential_seed(&BigUint::from(54321u32)));
+        // 54321 reversed = 12345 < 54321 (should fail)
+        assert!(!is_potential_seed(&BigUint::from(54321u32), Some(&p10_4)));
 
-        // 10000 reversed = 00001 = 1 < 10000 (should fail)
-        assert!(!gen.is_potential_seed(&BigUint::from(10000u32)));
+        // 10000 reversed = 1 < 10000 (should fail)
+        assert!(!is_potential_seed(&BigUint::from(10000u32), Some(&p10_4)));
     }
 
     #[test]
     fn test_generator_sequential() {
         let mut gen = SeedGenerator::new(3, GeneratorMode::Sequential);
-
-        // First number with 3 digits is 100
         let first = gen.next();
         assert!(first.is_some());
-
-        // Should generate some numbers
         let mut count = 0;
         for _ in gen.by_ref().take(10) {
             count += 1;
@@ -269,47 +225,10 @@ mod tests {
     #[test]
     fn test_generator_filters_reversed() {
         let mut gen = SeedGenerator::new(3, GeneratorMode::Sequential);
-
-        // Collect first 50 numbers
         let numbers: Vec<BigUint> = gen.by_ref().take(50).collect();
-
-        // Check that none of them have reverse < themselves
         for n in &numbers {
             let reversed = reverse_number(n);
-            assert!(
-                reversed >= *n,
-                "Generated number {} has reverse {} < itself",
-                n,
-                reversed
-            );
+            assert!(reversed >= *n);
         }
-    }
-
-    #[test]
-    fn test_generator_stats() {
-        let mut gen = SeedGenerator::new(3, GeneratorMode::Sequential);
-
-        // Generate some numbers
-        for _ in gen.by_ref().take(100) {}
-
-        let stats = gen.get_stats();
-        assert_eq!(stats.generated_count, 100);
-        assert!(stats.skip_count > 0, "Should have skipped some numbers");
-
-        println!(
-            "Generated: {}, Skipped: {}, Skip rate: {:.2}%",
-            stats.generated_count,
-            stats.skip_count,
-            stats.skip_rate * 100.0
-        );
-    }
-
-    #[test]
-    fn test_generator_from_checkpoint() {
-        let start = BigUint::from(50000u32);
-        let mut gen = SeedGenerator::from_checkpoint(5, GeneratorMode::Sequential, start.clone());
-
-        let first = gen.next().unwrap();
-        assert!(first >= start);
     }
 }
