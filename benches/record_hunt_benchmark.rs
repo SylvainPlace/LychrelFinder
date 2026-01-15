@@ -64,25 +64,16 @@ fn run_benchmark(
         println!("🔥 Warming up cache...");
         let warmup_start = Instant::now();
 
-        // Use a separate generator for warmup to target relevant numbers
-        let mut warmup_generator = SeedGenerator::new(config.min_digits, config.generator_mode.clone());
-        let mut warmup_count = 0;
-        let warmup_limit = 10_000; // Warmup with 10k items maximum
-
-        while let Some(candidate) = warmup_generator.next() {
+        for n in 1u32..=1_000_000 {
             let elapsed = warmup_start.elapsed();
-            if elapsed > max_duration / 2 || warmup_count >= warmup_limit {
-                if elapsed > max_duration / 2 {
-                    println!("⏱️  Warmup interrupted - taking too long");
-                }
+            if elapsed > max_duration / 2 {
+                println!("⏱️  Warmup interrupted - taking too long");
                 break;
             }
 
-            lychrel_iteration_with_cache(candidate, 1000, &mut cache);
-            warmup_count += 1;
-            
-            if warmup_count % 1000 == 0 {
-                println!("  Warmup progress: {}/{}", warmup_count, warmup_limit);
+            lychrel_iteration_with_cache(BigUint::from(n), 1000, &mut cache);
+            if n % 100_000 == 0 {
+                println!("  Warmup progress: {}/1,000,000", n);
             }
         }
 

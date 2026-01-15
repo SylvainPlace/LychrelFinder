@@ -34,9 +34,8 @@ pub struct IterationResult {
 /// assert_eq!(reversed, BigUint::from(321u32));
 /// ```
 pub fn reverse_number(n: &BigUint) -> BigUint {
-    let s = n.to_string();
-    let reversed = s.chars().rev().collect::<String>();
-    reversed.parse().unwrap()
+    let digits = n.to_radix_le(10);
+    BigUint::from_radix_be(&digits, 10).unwrap()
 }
 
 /// Check if a number is a palindrome
@@ -64,8 +63,14 @@ pub fn reverse_number(n: &BigUint) -> BigUint {
 /// ```
 pub fn is_palindrome(n: &BigUint) -> bool {
     let s = n.to_string();
-    let reversed: String = s.chars().rev().collect();
-    s == reversed
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    for i in 0..len / 2 {
+        if bytes[i] != bytes[len - 1 - i] {
+            return false;
+        }
+    }
+    true
 }
 
 /// Perform Lychrel iteration on a number
@@ -111,12 +116,20 @@ pub fn lychrel_iteration(start: BigUint, max_iterations: u32) -> IterationResult
         };
     }
 
+    // Pre-calculate reversed number for the first iteration
+    let mut reversed = reverse_number(&current);
+
     while iteration_count < max_iterations {
-        let reversed = reverse_number(&current);
         current += reversed;
         iteration_count += 1;
 
-        if is_palindrome(&current) {
+        // Calculate reverse of the new number
+        // This serves two purposes:
+        // 1. To check if the new number is a palindrome (by simple comparison)
+        // 2. To be ready for the next addition if the loop continues
+        reversed = reverse_number(&current);
+
+        if current == reversed {
             return IterationResult {
                 start_number: start,
                 is_palindrome: true,
@@ -183,6 +196,9 @@ pub fn lychrel_iteration_with_cache(
         };
     }
 
+    // Pre-calculate reversed number for the first iteration
+    let mut reversed = reverse_number(&current);
+
     while iteration_count < max_iterations {
         // CHECK CACHE BEFORE ITERATION
         if let Some(thread_info) = cache.check(&current) {
@@ -207,12 +223,14 @@ pub fn lychrel_iteration_with_cache(
         }
 
         // Normal iteration
-        let reversed = reverse_number(&current);
         current += reversed;
         iteration_count += 1;
         path.push(current.clone());
 
-        if is_palindrome(&current) {
+        // Calculate reverse of the new number for palindrome check AND next iteration
+        reversed = reverse_number(&current);
+
+        if current == reversed {
             // New thread with palindrome found!
             if cache.should_cache(iteration_count) {
                 let info = ThreadInfo {
