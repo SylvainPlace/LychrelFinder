@@ -292,7 +292,7 @@ impl RecordHunter {
             };
 
             // 3. Process batch in parallel
-            let (results, merged_cache, seeds_tested) = raw_batch
+            let (results, merged_cache, seeds_tested, max_i, max_d) = raw_batch
                 .par_iter()
                 .fold(
                     || {
@@ -300,6 +300,8 @@ impl RecordHunter {
                             Vec::new(),
                             ThreadCache::new_worker(snapshot.clone(), worker_cache_size),
                             0u64,
+                            0u32,
+                            0usize,
                         )
                     },
                     |mut acc, candidate| {
@@ -308,19 +310,37 @@ impl RecordHunter {
                         }
 
                         acc.2 += 1;
-                        let res = process_candidate(candidate, &mut acc.1, &config);
-                        if let Some(r) = res {
-                            acc.0.push(r);
+                        if let Some(r) = process_candidate(candidate, &mut acc.1, &config) {
+                            if r.iterations > acc.3 {
+                                acc.3 = r.iterations;
+                            }
+                            if r.final_digits > acc.4 {
+                                acc.4 = r.final_digits;
+                            }
+
+                            if r.is_record || r.is_promising {
+                                acc.0.push(r);
+                            }
                         }
                         acc
                     },
                 )
                 .reduce(
-                    || (Vec::new(), ThreadCache::new_empty(worker_cache_size), 0u64),
+                    || {
+                        (
+                            Vec::new(),
+                            ThreadCache::new_empty(worker_cache_size),
+                            0u64,
+                            0u32,
+                            0usize,
+                        )
+                    },
                     |mut a, b| {
                         a.0.extend(b.0);
                         a.1.merge(b.1);
                         a.2 += b.2;
+                        a.3 = a.3.max(b.3);
+                        a.4 = a.4.max(b.4);
                         a
                     },
                 );
@@ -335,17 +355,14 @@ impl RecordHunter {
             self.stats.seeds_tested += seeds_tested;
             self.current_range_tested += actual_batch_size;
 
+            if max_i > self.stats.best_iterations_found {
+                self.stats.best_iterations_found = max_i;
+            }
+            if max_d > self.stats.best_digits_found {
+                self.stats.best_digits_found = max_d;
+            }
+
             for res in results {
-                // Update specific stats
-
-                // Update specific stats
-                if res.final_digits > self.stats.best_digits_found {
-                    self.stats.best_digits_found = res.final_digits;
-                }
-                if res.iterations > self.stats.best_iterations_found {
-                    self.stats.best_iterations_found = res.iterations;
-                }
-
                 if res.is_record {
                     self.handle_record_found(RecordCandidate {
                         number: res.number.clone(),
@@ -355,7 +372,6 @@ impl RecordHunter {
                     });
                 }
 
-                // Add to candidates list if needed
                 if res.is_promising {
                     self.stats.candidates_above_200.push(RecordCandidate {
                         number: res.number,
@@ -409,14 +425,20 @@ impl RecordHunter {
 
     fn print_stats(&self) {
         let elapsed = self.stats.start_time.elapsed();
-        let rate = if elapsed.as_secs() > 0 {
-            self.stats.numbers_tested as f64 / elapsed.as_secs() as f64
+        let elapsed_secs = elapsed.as_secs_f64();
+        let rate = if elapsed_secs > 0.0 {
+            self.stats.numbers_tested as f64 / elapsed_secs
         } else {
             0.0
         };
 
         let cache_hit_rate = self.thread_cache.hit_rate() * 100.0;
-        let gen_stats = self.seed_generator.get_stats();
+        let skip_rate = if self.stats.numbers_tested > 0 {
+            (self.stats.numbers_tested - self.stats.seeds_tested) as f64
+                / self.stats.numbers_tested as f64
+        } else {
+            0.0
+        };
 
         // Calculate progress percentage if max_digits is set
         if let Some(_max_d) = self.max_digits {
@@ -442,7 +464,7 @@ impl RecordHunter {
                 rate,
                 self.stats.best_iterations_found,
                 self.stats.best_digits_found,
-                gen_stats.skip_rate * 100.0
+                skip_rate * 100.0
             );
         }
     }
@@ -582,20 +604,15 @@ fn process_candidate(
 
     let is_promising = result.is_palindrome && result.iterations >= 200;
 
-    if is_record || is_promising {
-        Some(ProcessResult {
-            number: candidate.to_string(),
-            iterations: result.iterations,
-            final_digits: result
-                .final_number
-                .as_ref()
-                .map(|n| n.to_string().len())
-                .unwrap_or(0),
-            is_record,
-            is_promising,
-        })
-    } else {
-        // Just updating cache stats happens inside cache
-        None
-    }
+    Some(ProcessResult {
+        number: candidate.to_string(),
+        iterations: result.iterations,
+        final_digits: result
+            .final_number
+            .as_ref()
+            .map(|n| n.to_string().len())
+            .unwrap_or(0),
+        is_record,
+        is_promising,
+    })
 }
