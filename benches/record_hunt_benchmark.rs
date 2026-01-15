@@ -272,14 +272,12 @@ fn print_table(metrics: &[BenchmarkMetrics]) {
 }
 
 fn save_to_file(metrics: &[BenchmarkMetrics], filename: &str) {
-    let header = format!(
-        "╔═══════════════════════════════════════════════════════════════════════════════╗\n\
+    let header = "╔═══════════════════════════════════════════════════════════════════════════════╗\n\
          ║                           RECORD HUNT BENCHMARK RESULTS                       ║\n\
          ╠═══════════════════════════════════════════════════════════════════════════════╣\n\
          ║ Config                                 │ Time     │ Cand/s   │ Seeds     │ Cache Hit │ Best    ║\n\
          ║                                        │ (s)      │          │ Tested    │ %         │ Iter    ║\n\
-         ╠═══════════════════════════════════════════════════════════════════════════════╣\n"
-    );
+         ╠═══════════════════════════════════════════════════════════════════════════════╣\n".to_string();
 
     let rows: Vec<String> = metrics
         .iter()
@@ -323,13 +321,12 @@ fn main() {
 
     // Parse --duration or -d argument
     for i in 0..args.len() {
-        if args[i] == "--duration" || args[i] == "-d" {
-            if i + 1 < args.len() {
+        if (args[i] == "--duration" || args[i] == "-d")
+            && i + 1 < args.len() {
                 if let Ok(d) = args[i + 1].parse::<u64>() {
                     duration_secs = d;
                 }
             }
-        }
     }
 
     let max_duration = Duration::from_secs(duration_secs);
