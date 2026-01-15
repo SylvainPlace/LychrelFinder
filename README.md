@@ -220,13 +220,13 @@ For extensive verification with millions of iterations and live progress trackin
 
 ```bash
 # Test 196 with 1 million iterations (auto-saves checkpoints every 10000 iterations)
-cargo run --release -- verify 196 --max-iterations 1000000
+cargo run --release --bin lychrel-finder verify 196 --max-iterations 1000000
 
 # Test with custom checkpoint interval
-cargo run --release -- verify 196 -m 10000000 -c 50000
+cargo run --release --bin lychrel-finder verify 196 -m 10000000 -c 50000
 
 # Disable checkpoint saving
-cargo run --release -- verify 196 -m 10000000 -c 0
+cargo run --release --bin lychrel-finder verify 196 -m 10000000 -c 0
 ```
 
 **Auto-Resume Feature:**
@@ -237,10 +237,10 @@ cargo run --release -- verify 196 -m 10000000 -c 0
 
 ```bash
 # Force restart without prompting (useful for scripts)
-cargo run --release -- verify 196 -m 10000000 --force-restart
+cargo run --release --bin lychrel-finder verify 196 -m 10000000 --force-restart
 
 # Or manually resume from a specific checkpoint file
-cargo run --release -- resume checkpoint_196.json
+cargo run --release --bin lychrel-finder resume checkpoint_196.json
 ```
 
 Example of resuming:
@@ -300,7 +300,7 @@ Note: 1000000 iterations is not definitive proof.
 ### Performance Benchmark
 
 ```bash
-cargo run --release -- benchmark
+cargo run --release --bin lychrel-finder benchmark
 ```
 
 ### Advanced Record Hunt Benchmark
